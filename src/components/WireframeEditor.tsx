@@ -21,6 +21,7 @@ import { TextEditor } from './TextEditor';
 import { BorderRadiusPicker } from './BorderRadiusPicker';
 import { PublishModal } from './PublishModal';
 import { LibraryModal } from './LibraryModal';
+import FigmaImportModal from './FigmaImportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../utils/supabase/client';
 import { saveOrUpdateProject, getProjectById } from '../utils/supabase/supabaseClient';
@@ -30,6 +31,7 @@ import { exportStageSVG } from 'react-konva-to-svg';
 import { WireframeCanvas } from './WireframeCanvas'; // Keep WireframeCanvas import
 import GridOverlay from './GridOverlay';
 import { Signal } from './Signal';
+import { convertFigmaToWireframes, FigmaFile } from '../utils/figmaImporter';
 
 const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
@@ -87,8 +89,8 @@ interface WireframeElement {
   name?: string;
   opacity?: number; // Adicionado para controlar a transparência da imagem
   // Advanced text properties
-  fontWeight?: 'normal' | 'bold';
-  fontFamily?: 'inter' | 'roboto' | 'arial' | 'helvetica' | 'times' | 'georgia' | 'monospace';
+  fontWeight?: string | number;
+  fontFamily?: string;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
 }
@@ -97,6 +99,8 @@ interface Wireframe {
   id: string;
   name: string;
   elements: WireframeElement[];
+  width?: number;
+  height?: number;
 }
 
 interface GridConfig {
@@ -111,7 +115,9 @@ interface GridConfig {
 interface Project {
   id: string;
   name: string;
-  resolution: 'mobile' | 'tablet' | 'desktop';
+  resolution: 'mobile' | 'tablet' | 'desktop' | 'custom';
+  width?: number;
+  height?: number;
   wireframes: Wireframe[];
   createdAt: string;
   gridConfig?: GridConfig;
@@ -120,37 +126,21 @@ interface Project {
 interface WireframeEditorProps {
   project: Project;
   onUpdateProject: (project: Project) => void;
-  // unsavedWarning: boolean; // Removido: A lógica de status de salvamento será interna
 }
 
-const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' | 'desktop') => {
+const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' | 'desktop' | 'custom') => {
   const fontSizes = {
     desktop: {
-      h1: 40,  // 2.5rem
-      h2: 32,  // 2rem
-      h3: 28,  // 1.75rem
-      h4: 24,  // 1.5rem
-      h5: 20,  // 1.25rem
-      h6: 16,  // 1rem
-      p: 16    // 1rem
+      h1: 40, h2: 32, h3: 28, h4: 24, h5: 20, h6: 16, p: 16
     },
     tablet: {
-      h1: 32,  // 2rem
-      h2: 28,  // 1.75rem
-      h3: 24,  // 1.5rem
-      h4: 20,  // 1.25rem
-      h5: 18,  // 1.125rem
-      h6: 16,  // 1rem
-      p: 15    // 0.95rem
+      h1: 32, h2: 28, h3: 24, h4: 20, h5: 18, h6: 16, p: 15
     },
     mobile: {
-      h1: 28,  // 1.75rem
-      h2: 24,  // 1.5rem
-      h3: 20,  // 1.25rem
-      h4: 18,  // 1.125rem
-      h5: 16,  // 1rem
-      h6: 14,  // 0.875rem
-      p: 14    // 0.875rem
+      h1: 28, h2: 24, h3: 20, h4: 18, h5: 16, h6: 14, p: 14
+    },
+    custom: {
+      h1: 40, h2: 32, h3: 28, h4: 24, h5: 20, h6: 16, p: 16
     }
   };
 
@@ -171,12 +161,11 @@ const getFontFamilyCSS = (font: string) => {
   }
 };
 
-// Helper function to get minimum size based on element type
 const getElementMinimumSize = (elementType: string) => {
   switch (elementType) {
-    case 'icon': return 14; // Minimum 14px for icons as requested
-    case 'line': return 2;  // Very small minimum for lines
-    default: return 5;      // General minimum for other elements
+    case 'icon': return 14;
+    case 'line': return 2;
+    default: return 5;
   }
 };
 
@@ -188,12 +177,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   const [sidebarTab, setSidebarTab] = useState<'components' | 'properties'>('components');
   const [gridConfig, setGridConfig] = useState<GridConfig>(
     project.gridConfig || {
-      enabled: false,
-      columns: 12,
-      gap: 16,
-      margin: 24,
-      color: 'red',
-      opacity: 0.1
+      enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1
     }
   );
   const [draggedTool, setDraggedTool] = useState<string | null>(null);
@@ -202,10 +186,10 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   const [newWireframeName, setNewWireframeName] = useState('');
   const [copiedElement, setCopiedElement] = useState<WireframeElement | null>(null);
   const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
-  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [isFigmaImportModalOpen, setIsFigmaImportModalOpen] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'Atualizado' | 'Atualizar' | 'Salvando...' | 'Verificando...' | 'Erro ao salvar'>('Atualizado');
-  // const [warningShown, setWarningShown] = useState(false); // Removido
 
   const stageRef = useRef<Konva.Stage>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -217,18 +201,15 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     saveProjectLocally(updatedProject);
   };
 
-  // Ref para controlar se há alterações não salvas no localStorage
   const hasLocalChangesRef = useRef(false);
-  const unsavedChangesToastShownRef = useRef(false); // Novo ref para controlar o toast de alterações não salvas no WireframeEditor
+  const unsavedChangesToastShownRef = useRef(false);
 
-  // Função para salvar o projeto localmente
   const saveProjectLocally = useCallback((currentProject: Project) => {
     localStorage.setItem(`wireframe_project_${currentProject.id}`, JSON.stringify(currentProject));
-    hasLocalChangesRef.current = true; // Indica que há alterações salvas localmente
-    setSaveStatus('Atualizar'); // O status agora reflete alterações locais pendentes de upload
+    hasLocalChangesRef.current = true;
+    setSaveStatus('Atualizar');
   }, []);
 
-  // Carregar projeto do localStorage e verificar status ao montar
   useEffect(() => {
     const projectId = project.id;
     const localProjectJson = localStorage.getItem(`wireframe_project_${projectId}`);
@@ -236,14 +217,10 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     if (localProjectJson) {
       try {
         const localProject: Project = JSON.parse(localProjectJson);
-        // Compara a versão local com a versão vinda do banco de dados via props
         if (JSON.stringify(localProject.wireframes) !== JSON.stringify(project.wireframes) || 
             JSON.stringify(localProject.gridConfig) !== JSON.stringify(project.gridConfig)) {
-          // Se a versão local for diferente da versão do banco de dados (inicialmente carregada)
-          // e o local timestamp for mais recente (opcional, pode ser inferido pela existência)
-          setSaveStatus('Atualizar'); // Indica que há uma versão mais recente localmente
+          setSaveStatus('Atualizar');
           hasLocalChangesRef.current = true;
-          // Evita exibir o toast repetidamente se já foi mostrado nesta sessão de edição
           if (!unsavedChangesToastShownRef.current) {
             showToast("Encontramos alterações não salvas localmente. Clique em 'Atualizar' para sincronizar.", "info");
             unsavedChangesToastShownRef.current = true;
@@ -251,32 +228,23 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         } else {
           setSaveStatus('Atualizado');
           hasLocalChangesRef.current = false;
-          unsavedChangesToastShownRef.current = false; // Resetar se o projeto estiver atualizado
+          unsavedChangesToastShownRef.current = false;
         }
       } catch (e) {
         console.error("Erro ao carregar projeto do localStorage:", e);
-        localStorage.removeItem(`wireframe_project_${projectId}`); // Limpa dados corrompidos
+        localStorage.removeItem(`wireframe_project_${projectId}`);
       }
     } else {
       setSaveStatus('Atualizado');
       hasLocalChangesRef.current = false;
-      unsavedChangesToastShownRef.current = false; // Resetar se não há nada no localstorage
+      unsavedChangesToastShownRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id]); // Executa apenas na montagem inicial e quando o ID do projeto muda
+  }, [project.id, project.wireframes, project.gridConfig, showToast]);
 
-  
-
-  // Adiciona/remove o listener para o evento beforeunload
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Permitir a saída, mas garantir que as alterações locais sejam consideradas salvas
-      // O usuário pode sair sem salvar no DB, mas não queremos mais bloquear a navegação
       if (hasLocalChangesRef.current) {
-        // O ideal seria um prompt nativo do navegador, mas o usuário pediu para não bloquear
-        // Portanto, apenas registra que havia alterações não salvas no DB
-        // As alterações locais *já foram salvas* no localStorage
-        return undefined; // Não retorna uma string para evitar o prompt
+        return undefined;
       }
     };
 
@@ -285,40 +253,46 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []); // Dependências vazias, pois hasLocalChangesRef é uma ref
+  }, []);
   
   const handleSaveProject = async () => {
     setSaveStatus('Salvando...');
     try {
       await saveOrUpdateProject(project);
-      onUpdateProject(project); // Isso também chamará saveProjectLocally
+      onUpdateProject(project);
       showToast('Projeto salvo com sucesso!', 'success');
-      setSaveStatus('Atualizado'); // Após salvar no DB, o status é atualizado
-      hasLocalChangesRef.current = false; // Não há mais alterações pendentes no DB
+      setSaveStatus('Atualizado');
+      hasLocalChangesRef.current = false;
     } catch (error) {
       if (error instanceof Error) {
         showToast(`Erro ao salvar: ${error.message}`, 'error');
       }
       setSaveStatus('Erro ao salvar');
-      // Manter hasLocalChangesRef.current como true se o salvamento no DB falhar
-    }
-  };
-
-  const getCanvasDimensions = () => {
-    switch (project.resolution) {
-      case 'mobile': return { width: 375, height: 812 };
-      case 'tablet': return { width: 768, height: 1024 };
-      case 'desktop': return { width: 1920, height: 1080 };
-      default: return { width: 1920, height: 1080 };
     }
   };
 
   const currentWireframe = activeWireframe !== 'none' ? project.wireframes.find(w => w.id === activeWireframe) : null;
+
+  const getDimensionsForResolution = (resolution: 'mobile' | 'tablet' | 'desktop' | 'custom', projectWidth?: number, projectHeight?: number) => {
+    switch (resolution) {
+      case 'mobile': return { width: 375, height: 812 };
+      case 'tablet': return { width: 768, height: 1024 };
+      case 'desktop': return { width: 1920, height: 1080 };
+      case 'custom': return { width: projectWidth || 1920, height: projectHeight || 1080 };
+      default: return { width: 1920, height: 1080 };
+    }
+  };
+
+  const getCanvasDimensions = () => {
+    if (currentWireframe && currentWireframe.width && currentWireframe.height) {
+        return { width: currentWireframe.width, height: currentWireframe.height };
+    }
+    return getDimensionsForResolution(project.resolution, project.width, project.height);
+  };
+
   const canvasDimensions = getCanvasDimensions();
 
-  const triggerUnsyncedState = () => {
-    // setSaveStatus('Atualizar'); // Não é mais necessário, pois saveProjectLocally já faz isso
-  };
+  const triggerUnsyncedState = () => {};
 
   const updateElementProperties = useCallback((elementId: string, props: Partial<WireframeElement>) => {
     triggerUnsyncedState();
@@ -452,18 +426,10 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         const step = e.shiftKey ? 10 : 1;
 
         switch (e.key) {
-          case 'ArrowUp':
-            moveElementWithKeyboard('up', step);
-            break;
-          case 'ArrowDown':
-            moveElementWithKeyboard('down', step);
-            break;
-          case 'ArrowLeft':
-            moveElementWithKeyboard('left', step);
-            break;
-          case 'ArrowRight':
-            moveElementWithKeyboard('right', step);
-            break;
+          case 'ArrowUp': moveElementWithKeyboard('up', step); break;
+          case 'ArrowDown': moveElementWithKeyboard('down', step); break;
+          case 'ArrowLeft': moveElementWithKeyboard('left', step); break;
+          case 'ArrowRight': moveElementWithKeyboard('right', step); break;
         }
       }
     };
@@ -505,8 +471,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
 
   const handleCanvasDragOver = (e: React.DragEvent) => {
     const hasIcon = e.dataTransfer.types.includes('application/json');
-    const hasTool = e.dataTransfer.types.includes('application/x-wireframe-tool') || 
-                    e.dataTransfer.types.includes('text/plain');
+    const hasTool = e.dataTransfer.types.includes('application/x-wireframe-tool') || e.dataTransfer.types.includes('text/plain');
     
     if (draggedTool || hasIcon || hasTool) {
       e.preventDefault();
@@ -530,9 +495,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     setIsDragOverCanvas(false);
     
     const stage = stageRef.current;
-    if (!stage) {
-      return;
-    }
+    if (!stage) return;
 
     const stageContainer = stage.container();
     const stageRect = stageContainer.getBoundingClientRect();
@@ -543,12 +506,8 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     let iconData = null;
     try {
       const transferData = e.dataTransfer.getData('application/json');
-      if (transferData) {
-        iconData = JSON.parse(transferData);
-      }
-    } catch (error) {
-      // Not an icon
-    }
+      if (transferData) iconData = JSON.parse(transferData);
+    } catch (error) {}
     
     if (iconData && iconData.type === 'icon') {
       const minSize = { width: Math.max(24, 40), height: Math.max(24, 40) };
@@ -585,13 +544,10 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     
     let toolType = draggedTool;
     if (!toolType) {
-      toolType = e.dataTransfer.getData('application/x-wireframe-tool') || 
-                e.dataTransfer.getData('text/plain');
+      toolType = e.dataTransfer.getData('application/x-wireframe-tool') || e.dataTransfer.getData('text/plain');
     }
     
-    if (!toolType) {
-      return;
-    }
+    if (!toolType) return;
     
     const getMinimumSize = (type: string) => {
       switch (type) {
@@ -645,14 +601,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     setSelectedElement(newElement.id);
     
     const elementTypeNames = {
-      'text': 'Texto',
-      'button': 'Botão',
-      'rectangle': 'Retângulo',
-      'circle': 'Círculo',
-      'line': 'Linha',
-      'image': 'Imagem',
-      'video': 'Vídeo',
-      'icon': 'Ícone'
+      'text': 'Texto', 'button': 'Botão', 'rectangle': 'Retângulo', 'circle': 'Círculo', 'line': 'Linha', 'image': 'Imagem', 'video': 'Vídeo', 'icon': 'Ícone'
     };
     
     showToast(`${elementTypeNames[toolType as keyof typeof elementTypeNames] || 'Elemento'} adicionado com sucesso!`, 'success');
@@ -661,10 +610,13 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   const handleAddWireframe = () => {
     if (!newWireframeName.trim()) return;
     triggerUnsyncedState();
+    const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
     const newWireframe: Wireframe = {
       id: Date.now().toString(),
       name: newWireframeName.trim(),
-      elements: []
+      elements: [],
+      width,
+      height,
     };
 
     const updatedProject = {
@@ -677,6 +629,17 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     setIsAddWireframeOpen(false);
     setNewWireframeName('');
     showToast('Nova tela criada com sucesso!', 'success');
+  };
+
+  const handleUpdateWireframe = (wireframeId: string, updates: Partial<Wireframe>) => {
+    triggerUnsyncedState();
+    const updatedProject = {
+      ...project,
+      wireframes: project.wireframes.map(w =>
+        w.id === wireframeId ? { ...w, ...updates } : w
+      )
+    };
+    updateAndSaveProject(updatedProject);
   };
 
   const handleDeleteWireframe = (wireframeId: string) => {
@@ -790,18 +753,10 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     let newY = element.y;
 
     switch (direction) {
-      case 'up':
-        newY = Math.max(0, element.y - step);
-        break;
-      case 'down':
-        newY = Math.min(canvasDimensions.height - element.height, element.y + step);
-        break;
-      case 'left':
-        newX = Math.max(0, element.x - step);
-        break;
-      case 'right':
-        newX = Math.min(canvasDimensions.width - element.width, element.x + step);
-        break;
+      case 'up': newY = Math.max(0, element.y - step); break;
+      case 'down': newY = Math.min(canvasDimensions.height - element.height, element.y + step); break;
+      case 'left': newX = Math.max(0, element.x - step); break;
+      case 'right': newX = Math.min(canvasDimensions.width - element.width, element.x + step); break;
     }
 
     const updatedProject = {
@@ -919,12 +874,6 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
 
   const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
 
-  const handlePublish = async (wireframesToPublish: Wireframe[]) => {
-    console.log('Publishing wireframes:', wireframesToPublish);
-    showToast('Wireframe publicado com sucesso!', 'success');
-    setIsPublishModalOpen(false);
-  };
-
   const handleDownloadWireframe = async () => {
     if (!stageRef.current || !currentWireframe) {
       showToast('Nenhum wireframe ativo ou canvas não disponível para download.', 'error');
@@ -952,7 +901,70 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     }
   };
 
-  const handleImportWireframe = (importedWireframeData: { name: string; svg: string }) => {
+    const handlePublish = (selectedWireframeIds: string[]) => {
+    // TODO: Implement the actual publish logic
+    console.log('Publishing wireframes:', selectedWireframeIds);
+    showToast(`${selectedWireframeIds.length} telas publicadas com sucesso!`, 'success');
+  };
+
+  const handleFigmaImport = async (url: string, token: string) => {
+    showToast('Importando do Figma...', 'info');
+    setIsFigmaImportModalOpen(false);
+
+    const fileKey = url.match(/(?:file|design)\/([^\/]+)/)?.[1];
+    if (!fileKey) {
+      showToast('URL do Figma inválida.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
+        headers: {
+          'X-Figma-Token': token,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Figma API error: ${response.statusText}`);
+      }
+
+      const data: FigmaFile = await response.json();
+      console.log('Figma data:', data);
+
+      const newWireframes = convertFigmaToWireframes(data);
+      console.log('Converted Wireframes:', newWireframes);
+
+      if (newWireframes.length === 0) {
+        showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
+        return;
+      }
+
+      const firstFrame = newWireframes[0];
+      const updatedProject = {
+        ...project,
+        resolution: 'custom' as const,
+        width: firstFrame.width,
+        height: firstFrame.height,
+        wireframes: [...project.wireframes, ...newWireframes],
+      };
+
+      updateAndSaveProject(updatedProject);
+      
+      if (newWireframes.length > 0) {
+        setActiveWireframe(newWireframes[0].id);
+      }
+
+      showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
+
+    } catch (error) {
+      if (error instanceof Error) {
+        showToast(`Erro ao importar do Figma: ${error.message}`, 'error');
+      }
+      console.error('Erro ao importar do Figma:', error);
+    }
+  };
+
+const handleImportWireframe = (importedWireframeData: { name: string; svg: string }) => {
     try {
       triggerUnsyncedState();
       const parser = new DOMParser();
@@ -971,32 +983,9 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         const rx = parseFloat(rect.getAttribute('rx') || '0');
 
         if (height <= 5 && borderWidth === 0) {
-          svgElements.push({
-            id,
-            type: 'line',
-            x,
-            y,
-            width,
-            height,
-            textColor: fill,
-            borderWidth: 0,
-          });
+          svgElements.push({ id, type: 'line', x, y, width, height, textColor: fill, borderWidth: 0 });
         } else {
-          svgElements.push({
-            id,
-            type: 'rectangle',
-            x,
-            y,
-            width,
-            height,
-            backgroundColor: fill,
-            borderColor: stroke,
-            borderWidth,
-            borderTopLeftRadius: rx,
-            borderTopRightRadius: rx,
-            borderBottomLeftRadius: rx,
-            borderBottomRightRadius: rx,
-          });
+          svgElements.push({ id, type: 'rectangle', x, y, width, height, backgroundColor: fill, borderColor: stroke, borderWidth, borderTopLeftRadius: rx, borderTopRightRadius: rx, borderBottomLeftRadius: rx, borderBottomRightRadius: rx });
         }
       });
 
@@ -1009,17 +998,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         const stroke = circle.getAttribute('stroke') || 'none';
         const borderWidth = parseFloat(circle.getAttribute('stroke-width') || '0');
 
-        svgElements.push({
-          id,
-          type: 'circle',
-          x: cx - r,
-          y: cy - r,
-          width: r * 2,
-          height: r * 2,
-          backgroundColor: fill,
-          borderColor: stroke,
-          borderWidth,
-        });
+        svgElements.push({ id, type: 'circle', x: cx - r, y: cy - r, width: r * 2, height: r * 2, backgroundColor: fill, borderColor: stroke, borderWidth });
       });
 
       svgDoc.querySelectorAll('text').forEach(text => {
@@ -1034,18 +1013,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         const estimatedWidth = textContent.length * (fontSize * 0.6);
         const estimatedHeight = fontSize * 1.2;
 
-        svgElements.push({
-          id,
-          type: 'text',
-          x: textAnchor === 'middle' ? x - estimatedWidth / 2 : x,
-          y: y - fontSize / 2,
-          width: estimatedWidth,
-          height: estimatedHeight,
-          text: textContent,
-          textColor,
-          textAlign: textAnchor === 'middle' ? 'center' : textAnchor === 'end' ? 'right' : 'left',
-          textLevel: 'p',
-        });
+        svgElements.push({ id, type: 'text', x: textAnchor === 'middle' ? x - estimatedWidth / 2 : x, y: y - fontSize / 2, width: estimatedWidth, height: estimatedHeight, text: textContent, textColor, textAlign: textAnchor === 'middle' ? 'center' : textAnchor === 'end' ? 'right' : 'left', textLevel: 'p' });
       });
 
       svgDoc.querySelectorAll('image').forEach(image => {
@@ -1056,15 +1024,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         const height = parseFloat(image.getAttribute('height') || '0');
         const href = image.getAttribute('href') || '';
 
-        svgElements.push({
-          id,
-          type: 'image',
-          x,
-          y,
-          width,
-          height,
-          imageSrc: href,
-        });
+        svgElements.push({ id, type: 'image', x, y, width, height, imageSrc: href });
       });
 
       const newWireframe: Wireframe = {
@@ -1093,39 +1053,13 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
 
   return (
     <div className="h-full flex flex-col">
-      {/* Tailwind Purge Safelist: bg-green-500 bg-red-500 */}
       <div className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {/* Wireframe Tabs */}
-          <div className="flex items-center gap-2">
-            {project.wireframes
-              .map((wireframe) => (
-              <Button
-                key={wireframe.id}
-                variant={activeWireframe === wireframe.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setActiveWireframe(wireframe.id)}
-                className="relative"
-              >
-                {wireframe.name}
-                {project.wireframes.length > 1 && (
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteWireframe(wireframe.id);
-                    }}
-                    className="ml-2 hover:bg-destructive hover:text-destructive-foreground rounded-sm p-0.5 cursor-pointer"
-                  >
-                    ×
-                  </span>
-                )}
-              </Button>
-            ))}
-            
+        <div className="flex items-center gap-2">
             <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nova Tela
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -1156,10 +1090,8 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                 </div>
               </DialogContent>
             </Dialog>
-          </div>
         </div>
 
-        {/* Zoom Controls */}
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}>
             <ZoomOut className="w-4 h-4" />
@@ -1168,11 +1100,14 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
           <Button variant="outline" size="sm" onClick={() => setZoom(Math.min(2, zoom + 0.25))}>
             <ZoomIn className="w-4 h-4" />
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setIsFigmaImportModalOpen(true)}>
+            Importar do Figma
+          </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadWireframe}>
+            Baixar Wireframe
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setIsPublishModalOpen(true)}>
             Publicar
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadWireframe}>
-            Baixar Wireframe
           </Button>
           <div className="relative flex items-center gap-2">
             <Button
@@ -1203,30 +1138,26 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex min-h-0">
         <ResizablePanelGroup direction="horizontal">
-          {/* Left Sidebar - Element Tree */}
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-            <div className="h-full border-r border-border bg-card p-4 overflow-y-auto">
-              <div>
-                <Label className="text-sm font-medium flex items-center gap-2 mb-3">
-                  <Layers className="w-4 h-4" />
-                  Estrutura dos Elementos
-                </Label>
-                <ElementTree
-                  elements={currentWireframe.elements}
-                  selectedElement={selectedElement}
-                  onSelectElement={setSelectedElement}
-                  onUpdateElement={updateElementProperty}
-                />
-              </div>
+            <div className="h-full border-r border-border bg-card p-0 overflow-y-auto">
+              <ElementTree
+                wireframes={project.wireframes}
+                activeWireframe={activeWireframe}
+                selectedElement={selectedElement}
+                onSelectWireframe={setActiveWireframe}
+                onSelectElement={setSelectedElement}
+                onUpdateWireframe={handleUpdateWireframe}
+                onUpdateElement={updateElementProperty}
+                onDeleteWireframe={handleDeleteWireframe}
+                onDeleteElement={handleDeleteSelectedElement}
+              />
             </div>
           </ResizablePanel>
 
           <ResizableHandle />
 
-          {/* Main Canvas */}
           <ResizablePanel defaultSize={64} minSize={40}>
             <div
               ref={canvasContainerRef}
@@ -1242,7 +1173,6 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
               onDrop={handleCanvasDrop}
               onPaste={handleCanvasPaste}
             >
-              {/* This container centers the canvas and provides the gray border via padding */}
               <div className="flex items-center justify-center min-h-full min-w-full p-8">
                 <div
                   className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
@@ -1258,7 +1188,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                     ref={stageRef}
                     project={project}
                     wireframe={currentWireframe}
-                    zoom={1} // Konva's internal zoom is 1, we scale the parent div
+                    zoom={1}
                     onSelectElement={handleElementMouseDown}
                     selectedElementId={selectedElement}
                     onUpdateElement={updateElementProperty}
@@ -1279,7 +1209,6 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
 
           <ResizableHandle />
 
-          {/* Right Sidebar - Components & Properties */}
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
             <div className="h-full border-l border-border bg-card">
               <Tabs value={sidebarTab} onValueChange={(value) => setSidebarTab(value as 'components' | 'properties')} className="h-full flex flex-col">
@@ -1289,108 +1218,52 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                 </TabsList>
 
                 <TabsContent value="components" className="flex-1 p-4 space-y-6 overflow-y-auto">
-                  {/* Drawing Tools */}
                   <div>
                     <Label className="text-sm font-medium">Ferramentas de Desenho</Label>
                     <div className="grid grid-cols-3 gap-2 mt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'rectangle')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'rectangle')} onDragEnd={handleDragEnd} draggable>
                         <Square className="w-4 h-4" />
                         <span className="text-xs">Retângulo</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'circle')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'circle')} onDragEnd={handleDragEnd} draggable>
                         <Circle className="w-4 h-4" />
                         <span className="text-xs">Círculo</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'line')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'line')} onDragEnd={handleDragEnd} draggable>
                         <Minus className="w-4 h-4" />
                         <span className="text-xs">Linha</span>
                       </Button>
                     </div>
                   </div>
 
-                  {/* UI Elements */}
                   <div>
                     <Label className="text-sm font-medium">Elementos UI</Label>
                     <div className="grid grid-cols-2 gap-2 mt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'text')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'text')} onDragEnd={handleDragEnd} draggable>
                         <Type className="w-4 h-4" />
                         <span className="text-xs">Texto</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'button')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'button')} onDragEnd={handleDragEnd} draggable>
                         <MousePointer className="w-4 h-4" />
                         <span className="text-xs">Botão</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'image')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'image')} onDragEnd={handleDragEnd} draggable>
                         <Image className="w-4 h-4" />
                         <span className="text-xs">Imagem</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-12 flex flex-col gap-1"
-                        onDragStart={(e) => handleToolDragStart(e, 'video')}
-                        onDragEnd={handleDragEnd}
-                        draggable
-                      >
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'video')} onDragEnd={handleDragEnd} draggable>
                         <Video className="w-4 h-4" />
                         <span className="text-xs">Vídeo</span>
                       </Button>
                     </div>
                   </div>
 
-                  {/* Icons Library */}
                   <IconLibrary onSelectIcon={(iconName, iconComponent) => addIconFromLibrary(iconName)} />
 
-                  {/* Grid Settings */}
                   <div>
                     <Label className="text-sm font-medium">Configurações do Grid</Label>
                     <div className="mt-2">
-                      <GridSettings
-                        config={gridConfig}
-                        onChange={handleGridConfigChange}
-                      />
+                      <GridSettings config={gridConfig} onChange={handleGridConfigChange} />
                     </div>
                   </div>
                 </TabsContent>
@@ -1403,77 +1276,45 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                         <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
                       </div>
 
-                      {/* Dimensions */}
-                      <DimensionEditor
-                        element={selectedElementData}
-                        onUpdate={(property, value) => updateElementProperty(selectedElementData.id, property, value)}
-                        canvasDimensions={canvasDimensions}
-                        resolution={project.resolution}
-                      />
+                      <DimensionEditor element={selectedElementData} onUpdate={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={project.resolution} />
 
-                      {/* Smart Editor Button */}
                       {selectedElementData.type === 'text' && (
                         <div className="pt-2">
-                          <Button
-                            onClick={() => setIsTextEditorOpen(true)}
-                            className="w-full flex items-center gap-2"
-                            variant="outline"
-                          >
+                          <Button onClick={() => setIsTextEditorOpen(true)} className="w-full flex items-center gap-2" variant="outline">
                             <Edit3 className="w-4 h-4" />
                             Editor Inteligente
                           </Button>
                         </div>
                       )}
 
-                      {/* Text Properties */}
                       {(selectedElementData.type === 'text' || selectedElementData.type === 'button') && (
                         <>
                           <div>
                             <Label htmlFor="element-text">Texto</Label>
-                            <Input
-                              id="element-text"
-                              value={selectedElementData.text || ''}
-                              onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)}
-                            />
+                            <Input id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
                           </div>
 
-                          <FontLevelPicker
-                            value={selectedElementData.textLevel || 'p'}
-                            onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)}
-                            resolution={project.resolution}
-                          />
+                          <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={project.resolution} />
 
-                          <TextColorPicker
-                            value={selectedElementData.textColor || 'var(--foreground)'}
-                            onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)}
-                          />
+                          <TextColorPicker value={selectedElementData.textColor || 'var(--foreground)'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)} />
 
-                          <TextAlignPicker
-                            value={selectedElementData.textAlign || 'left'}
-                            onChange={(value) => updateElementProperty(selectedElementData.id, 'textAlign', value)}
-                          />
+                          <TextAlignPicker value={selectedElementData.textAlign || 'left'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textAlign', value)} />
                         </>
                       )}
 
-                      {/* Navigation Target for Buttons */}
                       {selectedElementData.type === 'button' && (
                         <div>
                           <Label className="text-sm font-medium flex items-center gap-2">
                             <ArrowRight className="w-4 h-4" />
                             Navegação
                           </Label>
-                          <Select
-                            value={selectedElementData.navigationTarget || ''}
-                            onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}
-                          >
+                          <Select value={selectedElementData.navigationTarget || ''} onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}>
                             <SelectTrigger className="mt-2">
                               <SelectValue placeholder="Selecione a tela de destino" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">Nenhuma navegação</SelectItem>
-                              {project.wireframes
-                                .filter(w => w.id !== activeWireframe)
-                                .map(wireframe => (
+                              {project.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
                                   <SelectItem key={wireframe.id} value={wireframe.id}>
                                     {wireframe.name}
                                   </SelectItem>
@@ -1486,93 +1327,44 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                         </div>
                       )}
 
-                      {/* Background Color */}
                       {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
-                        <ColorPicker
-                          label="Cor de Fundo"
-                          value={selectedElementData.backgroundColor || '#ffffff'}
-                          onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)}
-                        />
+                        <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
                       )}
 
-                      {/* Border */}
                       {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
                         <>
-                          <BorderWidthPicker
-                            value={selectedElementData.borderWidth || 0}
-                            onChange={(value) => updateElementProperty(selectedElementData.id, 'borderWidth', value)}
-                          />
-
-                          <BorderColorPicker
-                            value={selectedElementData.borderColor || '#d1d5db'}
-                            onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)}
-                          />
+                          <BorderWidthPicker value={selectedElementData.borderWidth || 0} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderWidth', value)} />
+                          <BorderColorPicker value={selectedElementData.borderColor || '#d1d5db'} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)} />
                         </>
                       )}
 
-                     
-
-                      {/* Border Radius */}
                       {(selectedElementData.type === 'rectangle' || selectedElementData.type === 'button') && (
-                        <BorderRadiusPicker
-                          topLeft={selectedElementData.borderTopLeftRadius || 0}
-                          topRight={selectedElementData.borderTopRightRadius || 0}
-                          bottomLeft={selectedElementData.borderBottomLeftRadius || 0}
-                          bottomRight={selectedElementData.borderBottomRightRadius || 0}
-                          onChange={(corner, value) => {
-                            const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
-                            updateElementProperty(selectedElementData.id, propertyName, value);
-                          }}
-                          elementId={selectedElementData.id}
-                        />
+                        <BorderRadiusPicker topLeft={selectedElementData.borderTopLeftRadius || 0} topRight={selectedElementData.borderTopRightRadius || 0} bottomLeft={selectedElementData.borderBottomLeftRadius || 0} bottomRight={selectedElementData.borderBottomRightRadius || 0} onChange={(corner, value) => { const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`; updateElementProperty(selectedElementData.id, propertyName, value); }} elementId={selectedElementData.id} />
                       )}
 
-                      {/* Icon Selection */}
                       {selectedElementData.type === 'icon' && (
                         <div>
                           <Label className="text-sm font-medium">Escolher Ícone</Label>
                           <div className="mt-2">
-                            <IconLibrary
-                              onSelectIcon={(iconName, iconComponent) => {
-                                updateElementProperty(selectedElementData.id, 'iconName', iconName);
-                                updateElementProperty(selectedElementData.id, 'iconComponent', iconName);
-                              }}
-                            />
+                            <IconLibrary onSelectIcon={(iconName, iconComponent) => { updateElementProperty(selectedElementData.id, 'iconName', iconName); updateElementProperty(selectedElementData.id, 'iconComponent', iconName); }} />
                           </div>
                         </div>
                       )}
 
-                      {/* Z-Index Controls */}
                       <div>
                         <Label className="text-sm font-medium">Camada</Label>
                         <div className="flex gap-2 mt-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', Math.max(0, (selectedElementData.zIndex || 0) - 1))}
-                            title="Enviar para trás"
-                          >
+                          <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', Math.max(0, (selectedElementData.zIndex || 0) - 1))} title="Enviar para trás">
                             <ChevronDown className="w-4 h-4" />
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', (selectedElementData.zIndex || 0) + 1)}
-                            title="Trazer para frente"
-                          >
+                          <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', (selectedElementData.zIndex || 0) + 1)} title="Trazer para frente">
                             <ChevronUp className="w-4 h-4" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Delete Element */}
                       <div className="pt-4">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={handleDeleteSelectedElement}
-                          className="w-full"
-                        >
+                        <Button variant="destructive" size="sm" onClick={handleDeleteSelectedElement} className="w-full">
                           <Trash2 className="w-4 h-4 mr-2" />
                           Excluir Elemento
                         </Button>
@@ -1591,26 +1383,12 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         </ResizablePanelGroup>
       </div>
 
-      <TextEditor
-        isOpen={isTextEditorOpen}
-        onClose={() => setIsTextEditorOpen(false)}
-        element={selectedElementData || null}
-        onApplyChanges={handleApplyTextChanges}
-      />
+      <TextEditor isOpen={isTextEditorOpen} onClose={() => setIsTextEditorOpen(false)} element={selectedElementData || null} onApplyChanges={handleApplyTextChanges} />
 
-      <PublishModal
-        isOpen={isPublishModalOpen}
-        onClose={() => setIsPublishModalOpen(false)}
-        wireframes={project.wireframes}
-        onPublish={handlePublish}
-      />
+      <LibraryModal isOpen={isLibraryModalOpen} onClose={() => setIsLibraryModalOpen(false)} onImportWireframe={handleImportWireframe} />
 
-      <LibraryModal
-        isOpen={isLibraryModalOpen}
-        onClose={() => setIsLibraryModalOpen(false)}
-        onImportWireframe={handleImportWireframe}
-      />
-       {/* Tailwind Purge Safelist: bg-green-500 bg-red-500 */}
+            <FigmaImportModal isOpen={isFigmaImportModalOpen} onClose={() => setIsFigmaImportModalOpen(false)} onImport={handleFigmaImport} />
+      <PublishModal isOpen={isPublishModalOpen} onClose={() => setIsPublishModalOpen(false)} wireframes={project.wireframes} onPublish={handlePublish} />
     </div>
   );
 }

@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -14,10 +24,12 @@ import {
   Star,
   Trash2,
   Edit3,
-  Eye,
-  EyeOff
+  File,
+  Folder,
+  FolderOpen
 } from 'lucide-react';
 
+// Copied from WireframeEditor.tsx - consider moving to a shared types file
 interface WireframeElement {
   id: string;
   type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon';
@@ -42,13 +54,23 @@ interface WireframeElement {
   name?: string;
 }
 
-interface ElementTreeProps {
+interface Wireframe {
+  id: string;
+  name: string;
   elements: WireframeElement[];
+}
+
+interface ElementTreeProps {
+  wireframes: Wireframe[];
+  activeWireframe: string;
   selectedElement: string | null;
-  onSelectElement: (elementId: string) => void;
+  onSelectWireframe: (wireframeId: string) => void;
+  onSelectElement: (elementId: string | null) => void;
+  onUpdateWireframe: (wireframeId: string, updates: Partial<Wireframe>) => void;
   onUpdateElement: (elementId: string, updates: Partial<WireframeElement>) => void;
+  onDeleteWireframe: (wireframeId: string) => void;
   onDeleteElement: (elementId: string) => void;
-  onMoveElement: (elementId: string, newParentId: string | null) => void;
+  // onMoveElement: (elementId: string, newParentId: string | null, targetWireframeId: string) => void;
 }
 
 interface TreeNode {
@@ -65,43 +87,106 @@ const getElementIcon = (type: string) => {
     case 'image': return Image;
     case 'video': return Video;
     case 'icon': return Star;
-    default: return Square;
+    default: return File;
   }
 };
 
 const getElementName = (element: WireframeElement) => {
-  if (element.name) return element.name;
+  if (element.name && element.name.trim()) return element.name;
   if (element.text) return element.text.substring(0, 20) + (element.text.length > 20 ? '...' : '');
-  return `${element.type} ${element.id.substring(0, 8)}`;
+  return `${element.type}`;
 };
 
 export function ElementTree({ 
-  elements, 
+  wireframes,
+  activeWireframe,
   selectedElement, 
+  onSelectWireframe,
   onSelectElement, 
+  onUpdateWireframe,
   onUpdateElement, 
+  onDeleteWireframe,
   onDeleteElement,
-  onMoveElement 
+  // onMoveElement 
 }: ElementTreeProps) {
+  const [expandedWireframes, setExpandedWireframes] = useState<Set<string>>(() => new Set(wireframes.map(w => w.id)));
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
-  const [draggedElement, setDraggedElement] = useState<string | null>(null);
+  const [wireframeToDelete, setWireframeToDelete] = useState<string | null>(null);
 
-  // Build tree structure
-  const buildTree = (): TreeNode[] => {
+  useEffect(() => {
+    // Automatically expand the active wireframe
+    if (activeWireframe && !expandedWireframes.has(activeWireframe)) {
+      toggleWireframe(activeWireframe, true);
+    }
+  }, [activeWireframe]);
+
+  const handleDeleteWireframe = () => {
+    if (wireframeToDelete) {
+      onDeleteWireframe(wireframeToDelete);
+      setWireframeToDelete(null);
+    }
+  };
+
+  const toggleWireframe = (wireframeId: string, forceOpen = false) => {
+    setExpandedWireframes(prev => {
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(wireframeId) && !forceOpen) {
+        newExpanded.delete(wireframeId);
+      } else {
+        newExpanded.add(wireframeId);
+      }
+      return newExpanded;
+    });
+  };
+
+  const toggleNode = (elementId: string) => {
+    setExpandedNodes(prev => {
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(elementId)) {
+        newExpanded.delete(elementId);
+      } else {
+        newExpanded.add(elementId);
+      }
+      return newExpanded;
+    });
+  };
+
+  const startEditing = (id: string, currentName: string) => {
+    setEditingId(id);
+    setEditingValue(currentName);
+  };
+
+  const saveEditing = () => {
+    if (editingId) {
+      const isWireframe = wireframes.some(w => w.id === editingId);
+      if (isWireframe) {
+        onUpdateWireframe(editingId, { name: editingValue });
+      } else {
+        onUpdateElement(editingId, { name: editingValue });
+      }
+      setEditingId(null);
+      setEditingValue('');
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditingValue('');
+  };
+
+  const buildTree = (elements: WireframeElement[]): TreeNode[] => {
     const elementMap = new Map<string, WireframeElement>();
     elements.forEach(el => elementMap.set(el.id, el));
 
     const roots: TreeNode[] = [];
     const nodeMap = new Map<string, TreeNode>();
 
-    // Create nodes for all elements
     elements.forEach(element => {
       nodeMap.set(element.id, { element, children: [] });
     });
 
-    // Build parent-child relationships
     elements.forEach(element => {
       const node = nodeMap.get(element.id)!;
       if (element.parentId && nodeMap.has(element.parentId)) {
@@ -112,76 +197,14 @@ export function ElementTree({
       }
     });
 
-    // Sort by zIndex
-    const sortByZIndex = (nodes: TreeNode[]) => {
-      return nodes.sort((a, b) => (a.element.zIndex || 0) - (b.element.zIndex || 0));
-    };
-
+    const sortByZIndex = (nodes: TreeNode[]) => nodes.sort((a, b) => (a.element.zIndex || 0) - (b.element.zIndex || 0));
     const sortRecursive = (nodes: TreeNode[]) => {
       const sorted = sortByZIndex(nodes);
-      sorted.forEach(node => {
-        node.children = sortRecursive(node.children);
-      });
+      sorted.forEach(node => { node.children = sortRecursive(node.children); });
       return sorted;
     };
 
     return sortRecursive(roots);
-  };
-
-  const toggleExpanded = (elementId: string) => {
-    const newExpanded = new Set(expandedNodes);
-    if (newExpanded.has(elementId)) {
-      newExpanded.delete(elementId);
-    } else {
-      newExpanded.add(elementId);
-    }
-    setExpandedNodes(newExpanded);
-  };
-
-  const startEditing = (element: WireframeElement) => {
-    setEditingName(element.id);
-    setEditingValue(element.name || getElementName(element));
-  };
-
-  const saveEditing = () => {
-    if (editingName) {
-      onUpdateElement(editingName, { name: editingValue });
-      setEditingName(null);
-      setEditingValue('');
-    }
-  };
-
-  const cancelEditing = () => {
-    setEditingName(null);
-    setEditingValue('');
-  };
-
-  const handleDragStart = (e: React.DragEvent, elementId: string) => {
-    setDraggedElement(elementId);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDrop = (e: React.DragEvent, targetElementId: string | null) => {
-    e.preventDefault();
-    if (draggedElement && draggedElement !== targetElementId) {
-      // Check if target is not a descendant of dragged element
-      const isDescendant = (elementId: string, ancestorId: string): boolean => {
-        const element = elements.find(el => el.id === elementId);
-        if (!element || !element.parentId) return false;
-        if (element.parentId === ancestorId) return true;
-        return isDescendant(element.parentId, ancestorId);
-      };
-
-      if (!targetElementId || !isDescendant(targetElementId, draggedElement)) {
-        onMoveElement(draggedElement, targetElementId);
-      }
-    }
-    setDraggedElement(null);
   };
 
   const renderNode = (node: TreeNode, depth: number = 0): React.ReactNode => {
@@ -189,7 +212,7 @@ export function ElementTree({
     const hasChildren = node.children.length > 0;
     const isExpanded = expandedNodes.has(element.id);
     const isSelected = selectedElement === element.id;
-    const isEditing = editingName === element.id;
+    const isEditing = editingId === element.id;
     const IconComponent = getElementIcon(element.type);
 
     return (
@@ -199,37 +222,25 @@ export function ElementTree({
             isSelected ? 'bg-primary text-primary-foreground' : ''
           }`}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
-          onClick={() => !isEditing && onSelectElement(element.id)}
-          draggable
-          onDragStart={(e) => handleDragStart(e, element.id)}
-          onDragOver={handleDragOver}
-          onDrop={(e) => handleDrop(e, element.id)}
+          onClick={() => {
+            if (isEditing) return;
+            onSelectWireframe(activeWireframe);
+            onSelectElement(element.id);
+          }}
         >
-          {/* Expand/Collapse button */}
           <div className="w-4 h-4 flex items-center justify-center">
             {hasChildren && (
               <Button
-                variant="ghost"
-                size="sm"
-                className="w-4 h-4 p-0 hover:bg-transparent"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleExpanded(element.id);
-                }}
+                variant="ghost" size="sm" className="w-4 h-4 p-0 hover:bg-transparent"
+                onClick={(e) => { e.stopPropagation(); toggleNode(element.id); }}
               >
-                {isExpanded ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
+                {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </Button>
             )}
           </div>
 
-          {/* Element icon */}
-          <IconComponent className="w-4 h-4 mx-2 flex-shrink-0" />
+          <IconComponent className="w-3 h-3 mx-2 flex-shrink-0" />
 
-          {/* Element name */}
           <div className="flex-1 min-w-0">
             {isEditing ? (
               <Input
@@ -251,28 +262,17 @@ export function ElementTree({
             )}
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-6 h-6 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                startEditing(element);
-              }}
+             <Button
+              variant="ghost" size="sm" className="w-6 h-6 p-0"
+              onClick={(e) => { e.stopPropagation(); startEditing(element.id, getElementName(element)); }}
               title="Renomear"
             >
               <Edit3 className="w-3 h-3" />
             </Button>
             <Button
-              variant="ghost"
-              size="sm"
-              className="w-6 h-6 p-0 text-destructive hover:text-destructive"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteElement(element.id);
-              }}
+              variant="ghost" size="sm" className="w-6 h-6 p-0 text-destructive hover:text-destructive"
+              onClick={(e) => { e.stopPropagation(); onDeleteElement(element.id); }}
               title="Excluir"
             >
               <Trash2 className="w-3 h-3" />
@@ -280,7 +280,6 @@ export function ElementTree({
           </div>
         </div>
 
-        {/* Children */}
         {hasChildren && isExpanded && (
           <div>
             {node.children.map(child => renderNode(child, depth + 1))}
@@ -290,34 +289,123 @@ export function ElementTree({
     );
   };
 
-  const tree = buildTree();
+  const renderWireframe = (wireframe: Wireframe) => {
+    const isWireframeExpanded = expandedWireframes.has(wireframe.id);
+    const isWireframeActive = activeWireframe === wireframe.id;
+    const isEditing = editingId === wireframe.id;
+    const elementTree = buildTree(wireframe.elements);
+
+    return (
+      <div key={wireframe.id} className="select-none">
+        <div
+          className={`flex items-center py-1 pl-2 pr-1 rounded text-sm cursor-pointer hover:bg-accent group ${
+            isWireframeActive ? 'bg-blue-100 dark:bg-blue-900' : ''
+          }`}
+          onClick={() => {
+            if (isEditing) return;
+            toggleWireframe(wireframe.id);
+            onSelectWireframe(wireframe.id);
+            onSelectElement(null);
+          }}
+        >
+          <Button
+            variant="ghost" size="sm" className="w-4 h-4 p-0 hover:bg-transparent"
+            onClick={(e) => { e.stopPropagation(); toggleWireframe(wireframe.id); }}
+          >
+            {isWireframeExpanded ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
+          </Button>
+
+          <div className="flex-1 min-w-0 ml-2">
+            {isEditing ? (
+              <Input
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveEditing();
+                  if (e.key === 'Escape') cancelEditing();
+                }}
+                onBlur={saveEditing}
+                className="h-6 text-xs"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="truncate font-semibold" title={wireframe.name}>
+                {wireframe.name}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost" size="sm" className="w-6 h-6 p-0"
+              onClick={(e) => { e.stopPropagation(); startEditing(wireframe.id, wireframe.name); }}
+              title="Renomear Tela"
+            >
+              <Edit3 className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="ghost" size="sm" className="w-6 h-6 p-0 text-destructive hover:text-destructive"
+              onClick={(e) => { e.stopPropagation(); setWireframeToDelete(wireframe.id); }}
+              title="Excluir Tela"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+
+        {isWireframeExpanded && (
+          <div className="pl-4 border-l-2 border-dashed border-border ml-4">
+            {elementTree.length > 0 ? (
+              elementTree.map(node => renderNode(node, 1))
+            ) : (
+              <div className="text-xs text-muted-foreground p-2 pl-5">Nenhum elemento nesta tela.</div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-3 border-b border-border">
-        <h3 className="font-medium text-sm">Elementos</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          Arraste para reorganizar a hierarquia
-        </p>
-      </div>
-      
-      <ScrollArea className="flex-1">
-        <div 
-          className="p-2 min-h-full"
-          onDragOver={handleDragOver}
-          onDrop={(e) => handleDrop(e, null)}
-        >
-          {tree.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Square className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">Nenhum elemento</p>
-              <p className="text-xs">Adicione elementos ao wireframe</p>
-            </div>
-          ) : (
-            tree.map(node => renderNode(node))
-          )}
+    <>
+      <div className="h-full flex flex-col">
+        <div className="p-3 border-b border-border">
+          <h3 className="font-medium text-sm">Telas e Elementos</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Gerencie suas telas e a hierarquia dos elementos.
+          </p>
         </div>
-      </ScrollArea>
-    </div>
+        
+        <ScrollArea className="flex-1">
+          <div className="p-2 min-h-full">
+            {wireframes.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Folder className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">Nenhuma tela criada</p>
+                <p className="text-xs">Crie uma nova tela para começar</p>
+              </div>
+            ) : (
+              wireframes.map(renderWireframe)
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+      <AlertDialog open={!!wireframeToDelete} onOpenChange={() => setWireframeToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. Isso excluirá permanentemente a tela e todos os seus elementos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteWireframe}>Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
+

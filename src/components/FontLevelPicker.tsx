@@ -5,11 +5,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 interface FontLevelPickerProps {
   value: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p';
   onChange: (level: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p') => void;
-  resolution?: 'mobile' | 'tablet' | 'desktop';
+  resolution?: 'mobile' | 'tablet' | 'desktop' | 'custom';
   label?: string;
 }
 
-const getFontLevels = (resolution: 'mobile' | 'tablet' | 'desktop' = 'desktop') => {
+const getFontLevels = (resolution: 'mobile' | 'tablet' | 'desktop' | 'custom' = 'desktop') => {
+  const validResolutions: ('mobile' | 'tablet' | 'desktop')[] = ['mobile', 'tablet', 'desktop'];
+  const currentResolution = validResolutions.includes(resolution as any) ? resolution : 'desktop';
+
   const sizes = {
     desktop: {
       h1: '40px', h2: '32px', h3: '28px', h4: '24px', h5: '20px', h6: '16px', p: '16px'
@@ -19,17 +22,20 @@ const getFontLevels = (resolution: 'mobile' | 'tablet' | 'desktop' = 'desktop') 
     },
     mobile: {
       h1: '28px', h2: '24px', h3: '20px', h4: '18px', h5: '16px', h6: '14px', p: '14px'
+    },
+    custom: {
+      h1: '40px', h2: '32px', h3: '28px', h4: '24px', h5: '20px', h6: '16px', p: '16px'
     }
   };
 
   return [
-    { value: 'h1', label: `Título 1 (${sizes[resolution].h1})` },
-    { value: 'h2', label: `Título 2 (${sizes[resolution].h2})` },
-    { value: 'h3', label: `Título 3 (${sizes[resolution].h3})` },
-    { value: 'h4', label: `Título 4 (${sizes[resolution].h4})` },
-    { value: 'h5', label: `Título 5 (${sizes[resolution].h5})` },
-    { value: 'h6', label: `Título 6 (${sizes[resolution].h6})` },
-    { value: 'p', label: `Parágrafo (${sizes[resolution].p})` },
+    { value: 'h1', label: `Título 1 (${sizes[currentResolution].h1})` },
+    { value: 'h2', label: `Título 2 (${sizes[currentResolution].h2})` },
+    { value: 'h3', label: `Título 3 (${sizes[currentResolution].h3})` },
+    { value: 'h4', label: `Título 4 (${sizes[currentResolution].h4})` },
+    { value: 'h5', label: `Título 5 (${sizes[currentResolution].h5})` },
+    { value: 'h6', label: `Título 6 (${sizes[currentResolution].h6})` },
+    { value: 'p', label: `Parágrafo (${sizes[currentResolution].p})` },
   ] as const;
 };
 

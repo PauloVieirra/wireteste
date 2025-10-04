@@ -32,8 +32,8 @@ interface WireframeElement {
   parentId?: string;
   name?: string;
   opacity?: number;
-  fontWeight?: 'normal' | 'bold';
-  fontFamily?: 'inter' | 'roboto' | 'arial' | 'helvetica' | 'times' | 'georgia' | 'monospace';
+  fontWeight?: string | number;
+  fontFamily?: string;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
 }
@@ -148,7 +148,6 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       break;
     case 'button':
         const buttonFontSize = getFontSize(element, projectResolution);
-        const buttonFontFamily = getFontFamilyCSS(element.fontFamily || 'inter');
         component = (
             <Group {...commonProps} ref={shapeRef}>
                 <Rect
@@ -167,7 +166,8 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
                 <Text
                     text={element.text || 'Button'}
                     fontSize={buttonFontSize}
-                    fontFamily={buttonFontFamily}
+                    fontFamily={element.fontFamily || 'Inter'}
+                    fontWeight={element.fontWeight || 'normal'}
                     fill={element.textColor || 'var(--foreground)'}
                     width={element.width}
                     height={element.height}
@@ -198,7 +198,6 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       break;
     case 'text':
       const fontSize = getFontSize(element, projectResolution);
-      const fontFamily = getFontFamilyCSS(element.fontFamily || 'inter');
       component = (
         <Text
           key={element.id}
@@ -206,7 +205,8 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
           ref={shapeRef}
           text={element.text || 'Text'}
           fontSize={fontSize}
-          fontFamily={fontFamily}
+          fontFamily={element.fontFamily || 'Inter'}
+          fontWeight={element.fontWeight || 'normal'}
           fill={element.textColor || 'var(--foreground)'}
           align={element.textAlign || 'left'}
           verticalAlign="top"
