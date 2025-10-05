@@ -80,6 +80,7 @@ interface WireframeElement {
   borderTopRightRadius?: number;
   borderBottomLeftRadius?: number;
   borderBottomRightRadius?: number;
+  iconId?: string;
   iconName?: string;
   iconComponent?: string;
   imageSrc?: string;
@@ -89,10 +90,12 @@ interface WireframeElement {
   name?: string;
   opacity?: number; // Adicionado para controlar a transparência da imagem
   // Advanced text properties
+  fontSize?: number;
   fontWeight?: string | number;
   fontFamily?: string;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
+  textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT';
 }
 
 interface Wireframe {
@@ -121,6 +124,8 @@ interface Project {
   wireframes: Wireframe[];
   createdAt: string;
   gridConfig?: GridConfig;
+  figmaFileKey?: string;
+  figmaToken?: string;
 }
 
 interface WireframeEditorProps {
@@ -129,6 +134,10 @@ interface WireframeEditorProps {
 }
 
 const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' | 'desktop' | 'custom') => {
+  if (element.fontSize) {
+    return element.fontSize;
+  }
+
   const fontSizes = {
     desktop: {
       h1: 40, h2: 32, h3: 28, h4: 24, h5: 20, h6: 16, p: 16
@@ -145,7 +154,13 @@ const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' 
   };
 
   const level = element.textLevel || 'p';
-  return fontSizes[resolution][level];
+  const res = resolution || 'desktop';
+
+  if (!fontSizes[res]) {
+    return fontSizes.desktop[level];
+  }
+
+  return fontSizes[res][level];
 };
 
 const getFontFamilyCSS = (font: string) => {
@@ -354,10 +369,13 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   useEffect(() => {
     if (project.wireframes.length === 0) {
       triggerUnsyncedState();
+      const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
       const firstWireframe: Wireframe = {
         id: Date.now().toString(),
         name: 'Tela 1',
-        elements: []
+        elements: [],
+        width,
+        height,
       };
 
       const updatedProject = {
@@ -946,6 +964,8 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         width: firstFrame.width,
         height: firstFrame.height,
         wireframes: [...project.wireframes, ...newWireframes],
+        figmaFileKey: fileKey,
+        figmaToken: token,
       };
 
       updateAndSaveProject(updatedProject);

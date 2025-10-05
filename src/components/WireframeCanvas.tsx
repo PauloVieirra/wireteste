@@ -3,6 +3,7 @@ import { Stage, Layer, Rect, Circle, Text, Transformer, Image as KonvaImage, Gro
 import Konva from 'konva';
 import { iconIndex } from './icon-index'; // Import iconIndex
 import { iconPaths } from './icon-paths.js'; // Import generated icon paths
+import { KonvaSvg } from './KonvaSvg';
 
 // --- DATA STRUCTURES (from WireframeEditor) ---
 interface WireframeElement {
@@ -24,6 +25,7 @@ interface WireframeElement {
   borderTopRightRadius?: number;
   borderBottomLeftRadius?: number;
   borderBottomRightRadius?: number;
+  iconId?: string;
   iconName?: string;
   iconComponent?: string;
   imageSrc?: string;
@@ -36,6 +38,7 @@ interface WireframeElement {
   fontFamily?: string;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
+  textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT';
 }
 
 interface Wireframe {
@@ -58,6 +61,8 @@ interface Project {
   wireframes: Wireframe[];
   createdAt: string;
   gridConfig?: GridConfig;
+  figmaFileKey?: string;
+  figmaToken?: string;
 }
 
 // --- COMPONENT PROPS ---
@@ -79,11 +84,12 @@ interface WireframeCanvasProps {
 }
 
 // --- SINGLE ELEMENT COMPONENT ---
-const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectResolution, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions }) => {
+const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions }) => {
   const shapeRef = useRef<Konva.Node>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
   const [image, setImage] = useState<HTMLImageElement | undefined>(undefined);
+  const [svgUrl, setSvgUrl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (element.type === 'image' && element.imageSrc) {
@@ -96,6 +102,27 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       setImage(undefined);
     }
   }, [element.type, element.imageSrc]);
+
+  useEffect(() => {
+    if (element.type === 'icon' && element.iconId && project.figmaFileKey && project.figmaToken) {
+      const fetchSvg = async () => {
+        try {
+          const response = await fetch(`https://api.figma.com/v1/images/${project.figmaFileKey}?ids=${element.iconId}&format=svg`, {
+            headers: {
+              'X-Figma-Token': project.figmaToken,
+            },
+          });
+          const data = await response.json();
+          if (data.images && data.images[element.iconId]) {
+            setSvgUrl(data.images[element.iconId]);
+          }
+        } catch (error) {
+          console.error('Error fetching SVG from Figma:', error);
+        }
+      };
+      fetchSvg();
+    }
+  }, [element.type, element.iconId, project.figmaFileKey, project.figmaToken]);
 
   useEffect(() => {
     if (isSelected && shapeRef.current && trRef.current) {
@@ -147,7 +174,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       );
       break;
     case 'button':
-        const buttonFontSize = getFontSize(element, projectResolution);
+        const buttonFontSize = getFontSize(element, project.resolution);
         component = (
             <Group {...commonProps} ref={shapeRef}>
                 <Rect
@@ -197,24 +224,34 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       );
       break;
     case 'text':
-      const fontSize = getFontSize(element, projectResolution);
+      const fontSize = getFontSize(element, project.resolution);
+      const textProps = {
+        ...commonProps,
+        text: element.text || 'Text',
+        fontSize: fontSize,
+        fontFamily: element.fontFamily || 'Inter',
+        fontWeight: element.fontWeight || 'normal',
+        fill: element.textColor || 'var(--foreground)',
+        align: element.textAlign || 'left',
+        verticalAlign: "top",
+        padding: 5,
+        fontStyle: element.fontStyle || 'normal',
+        textDecoration: element.textDecoration || 'none',
+        wrap: "word",
+      };
+
+      if (element.textAutoResize === 'WIDTH_AND_HEIGHT') {
+        delete textProps.width;
+        delete textProps.height;
+      } else if (element.textAutoResize === 'HEIGHT') {
+        delete textProps.height;
+      }
+
       component = (
         <Text
           key={element.id}
-          {...commonProps}
           ref={shapeRef}
-          text={element.text || 'Text'}
-          fontSize={fontSize}
-          fontFamily={element.fontFamily || 'Inter'}
-          fontWeight={element.fontWeight || 'normal'}
-          fill={element.textColor || 'var(--foreground)'}
-          align={element.textAlign || 'left'}
-          verticalAlign="top"
-          padding={5}
-          fontStyle={element.fontStyle || 'normal'}
-          textDecoration={element.textDecoration || 'none'}
-          wrap="word"
-          height={element.height} // Set height to allow vertical resizing
+          {...textProps}
         />
       );
       break;
@@ -253,9 +290,19 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
       );
       break;
     case 'icon':
-      const paths = iconPaths[element.iconName || 'Star'];
-      if (!paths || paths.length === 0) {
-        console.warn(`Icon paths for ${element.iconName} not found.`);
+      const iconSrc = element.iconComponent || svgUrl;
+      if (iconSrc) {
+        component = (
+          <Group {...commonProps} ref={shapeRef}>
+            <KonvaSvg
+              src={iconSrc}
+              width={element.width}
+              height={element.height}
+              fillColor={element.textColor || 'black'}
+            />
+          </Group>
+        );
+      } else {
         component = (
           <Text
             key={element.id}
@@ -267,20 +314,6 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, projectR
             align="center"
             verticalAlign="middle"
           />
-        );
-      } else {
-        component = (
-          <Group {...commonProps} ref={shapeRef}>
-            {paths.map((pathData, idx) => (
-              <Path
-                key={idx}
-                data={pathData}
-                fill={element.textColor || 'black'}
-                scaleX={element.width / 16} // Scale from 16x16 viewBox
-                scaleY={element.height / 16} // Scale from 16x16 viewBox
-              />
-            ))}
-          </Group>
         );
       }
       break;
@@ -474,7 +507,7 @@ export const WireframeCanvas = React.forwardRef(({
               onSelect={onSelectElement}
               onUpdate={onUpdateElement}
               zoom={zoom}
-              projectResolution={project.resolution}
+              project={project}
               getFontSize={getFontSize}
               getFontFamilyCSS={getFontFamilyCSS}
               getElementMinimumSize={getElementMinimumSize}

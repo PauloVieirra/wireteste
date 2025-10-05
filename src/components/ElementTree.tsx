@@ -78,6 +78,13 @@ interface TreeNode {
   children: TreeNode[];
 }
 
+const truncateName = (name: string, length: number) => {
+  if (name.length > length) {
+    return name.substring(0, length) + '...';
+  }
+  return name;
+};
+
 const getElementIcon = (type: string) => {
   switch (type) {
     case 'rectangle': case 'button': return Square;
@@ -92,8 +99,8 @@ const getElementIcon = (type: string) => {
 };
 
 const getElementName = (element: WireframeElement) => {
-  if (element.name && element.name.trim()) return element.name;
-  if (element.text) return element.text.substring(0, 20) + (element.text.length > 20 ? '...' : '');
+  if (element.name && element.name.trim()) return truncateName(element.name, 40);
+  if (element.text) return truncateName(element.text, 40);
   return `${element.type}`;
 };
 
@@ -109,7 +116,7 @@ export function ElementTree({
   onDeleteElement,
   // onMoveElement 
 }: ElementTreeProps) {
-  const [expandedWireframes, setExpandedWireframes] = useState<Set<string>>(() => new Set(wireframes.map(w => w.id)));
+  const [expandedWireframes, setExpandedWireframes] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -331,7 +338,7 @@ export function ElementTree({
               />
             ) : (
               <span className="truncate font-semibold" title={wireframe.name}>
-                {wireframe.name}
+                {truncateName(wireframe.name, 40)}
               </span>
             )}
           </div>
@@ -408,4 +415,3 @@ export function ElementTree({
     </>
   );
 }
-
