@@ -845,7 +845,14 @@ export function WireframeEditorFixed({ project, onUpdateProject }: WireframeEdit
   };
 
   if (!currentWireframe) {
-    return <div>Carregando...</div>;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Flex align="center" gap="middle" vertical>
+          <Spin size="large" />
+          <p>Carregando...</p>
+        </Flex>
+      </div>
+    );
   }
 
   return (

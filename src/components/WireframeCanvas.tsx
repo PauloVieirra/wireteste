@@ -2,8 +2,10 @@ import React, { useRef, useEffect, Fragment, useState } from 'react';
 import { Stage, Layer, Rect, Circle, Text, Transformer, Image as KonvaImage, Group, Path } from 'react-konva';
 import Konva from 'konva';
 import { iconIndex } from './icon-index'; // Import iconIndex
+// @ts-ignore
 import { iconPaths } from './icon-paths.js'; // Import generated icon paths
 import { KonvaSvg } from './KonvaSvg';
+import KonvaIconRenderer from './KonvaIconRenderer';
 
 // --- DATA STRUCTURES (from WireframeEditor) ---
 interface WireframeElement {
@@ -290,19 +292,29 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       );
       break;
     case 'icon':
-      const iconSrc = element.iconComponent || svgUrl;
-      if (iconSrc) {
+      if (element.iconComponent || (element.iconId && svgUrl)) { // Figma icon or imported icon
         component = (
           <Group {...commonProps} ref={shapeRef}>
             <KonvaSvg
-              src={iconSrc}
+              src={element.iconComponent || svgUrl}
               width={element.width}
               height={element.height}
               fillColor={element.textColor || 'black'}
             />
           </Group>
         );
-      } else {
+      } else if (element.iconName) { // Library icon
+        component = (
+          <Group {...commonProps} ref={shapeRef}>
+            <KonvaIconRenderer
+              iconName={element.iconName}
+              width={element.width}
+              height={element.height}
+              fill={element.textColor || 'black'}
+            />
+          </Group>
+        );
+      } else { // Fallback
         component = (
           <Text
             key={element.id}

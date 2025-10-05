@@ -32,6 +32,7 @@ import { WireframeCanvas } from './WireframeCanvas'; // Keep WireframeCanvas imp
 import GridOverlay from './GridOverlay';
 import { Signal } from './Signal';
 import { convertFigmaToWireframes, FigmaFile } from '../utils/figmaImporter';
+import { Flex, Spin } from 'antd';
 
 const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
@@ -367,6 +368,12 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   };
 
   useEffect(() => {
+    if (project.wireframes.length > 0 && activeWireframe === 'none') {
+      setActiveWireframe(project.wireframes[0].id);
+    }
+  }, [project.wireframes, activeWireframe]);
+
+  useEffect(() => {
     if (project.wireframes.length === 0) {
       triggerUnsyncedState();
       const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
@@ -385,8 +392,6 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
       
       updateAndSaveProject(updatedProject);
       setActiveWireframe(firstWireframe.id);
-    } else if (activeWireframe === 'none' && project.wireframes.length > 0) {
-      setActiveWireframe(project.wireframes[0].id);
     }
   }, [project, onUpdateProject, activeWireframe]);
 
@@ -718,7 +723,6 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
       zIndex: (currentWireframe.elements.length || 0) + 1,
       borderWidth: 0,
       iconName: iconName,
-      iconComponent: iconName,
     };
 
     const updatedProject = {
@@ -971,7 +975,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
       updateAndSaveProject(updatedProject);
       
       if (newWireframes.length > 0) {
-        setActiveWireframe(newWireframes[0].id);
+        
       }
 
       showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
@@ -1068,11 +1072,18 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
   };
 
   if (!currentWireframe) {
-    return <div>Carregando...</div>;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Flex align="center" gap="middle" vertical>
+          <Spin size="large" />
+          <p>Carregando...</p>
+        </Flex>
+      </div>
+    );
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       <div className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
             <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
@@ -1158,10 +1169,10 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
         </div>
       </div>
 
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 min-h-0">
         <ResizablePanelGroup direction="horizontal">
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-            <div className="h-full border-r border-border bg-card p-0 overflow-y-auto">
+            <div className="h-full border-r border-border bg-card p-0">
               <ElementTree
                 wireframes={project.wireframes}
                 activeWireframe={activeWireframe}
@@ -1366,7 +1377,13 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         <div>
                           <Label className="text-sm font-medium">Escolher Ícone</Label>
                           <div className="mt-2">
-                            <IconLibrary onSelectIcon={(iconName, iconComponent) => { updateElementProperty(selectedElementData.id, 'iconName', iconName); updateElementProperty(selectedElementData.id, 'iconComponent', iconName); }} />
+                            <IconLibrary onSelectIcon={(iconName, iconComponent) => { 
+                              updateElementProperties(selectedElementData.id, {
+                                iconName: iconName,
+                                iconComponent: undefined,
+                                iconId: undefined
+                              }); 
+                            }} />
                           </div>
                         </div>
                       )}

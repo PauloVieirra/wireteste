@@ -691,7 +691,7 @@ export default function App() {
           </AlertDialog>
 
 
-          {currentView !== 'projects' && currentView !== 'user-home' && (
+          {currentView !== 'projects' && currentView !== 'user-home' && currentView !== 'wireframe-editor' && (
             <header className="border-b border-border bg-card">
               <div className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -711,7 +711,7 @@ export default function App() {
             </header>
           )}
 
-          <main className="flex-1">
+          <div class="flex-1">
             {currentView === 'projects' && (
               <ProjectList
                 items={displayList}
@@ -804,7 +804,7 @@ export default function App() {
                 <p className="text-xl font-medium">{sendingMessage}</p>
               </div>
             )} */}
-          </main>
+          </div>
         </AuthenticatedLayout>
       </ToastProvider>
   );

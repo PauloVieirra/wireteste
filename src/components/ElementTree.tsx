@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
 import { 
   AlertDialog,
@@ -231,7 +230,6 @@ export function ElementTree({
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           onClick={() => {
             if (isEditing) return;
-            onSelectWireframe(activeWireframe);
             onSelectElement(element.id);
           }}
         >
@@ -376,7 +374,7 @@ export function ElementTree({
 
   return (
     <>
-      <div className="h-full flex flex-col">
+      <div className="h-full">
         <div className="p-3 border-b border-border">
           <h3 className="font-medium text-sm">Telas e Elementos</h3>
           <p className="text-xs text-muted-foreground mt-1">
@@ -384,8 +382,8 @@ export function ElementTree({
           </p>
         </div>
         
-        <ScrollArea className="flex-1">
-          <div className="p-2 min-h-full">
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-2">
             {wireframes.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Folder className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -396,7 +394,7 @@ export function ElementTree({
               wireframes.map(renderWireframe)
             )}
           </div>
-        </ScrollArea>
+        </div>
       </div>
       <AlertDialog open={!!wireframeToDelete} onOpenChange={() => setWireframeToDelete(null)}>
         <AlertDialogContent>

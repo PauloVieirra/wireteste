@@ -1,40 +1,45 @@
 import React, { useEffect, useState } from 'react';
-import { Path } from 'react-konva';
+import { Group, Path, Text } from 'react-konva';
+// @ts-ignore
+import { iconPaths } from './icon-paths.js';
 
 interface KonvaIconRendererProps {
   iconName: string;
-  x: number;
-  y: number;
   width: number;
   height: number;
   fill: string;
 }
 
-const KonvaIconRenderer: React.FC<KonvaIconRendererProps> = ({ iconName, x, y, width, height, fill }) => {
+const KonvaIconRenderer: React.FC<KonvaIconRendererProps> = ({ iconName, width, height, fill }) => {
   const [pathData, setPathData] = useState<string[]>([]);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    const fetchIcon = async () => {
-      try {
-        const iconModule = await import(`./icons/${iconName}.tsx`);
-        // This is where the magic needs to happen.
-        // I need to get the file content and parse it.
-        // For now, I will just log the module.
-        console.log(iconModule);
-      } catch (error) {
-        console.error(`Error loading icon ${iconName}:`, error);
-      }
-    };
-
-    fetchIcon();
+    if (iconName && iconPaths[iconName]) {
+      setPathData(iconPaths[iconName]);
+      setError(false);
+    } else {
+      console.warn(`Icon "${iconName}" not found in iconPaths.`);
+      setError(true);
+    }
   }, [iconName]);
 
+  if (error || pathData.length === 0) {
+    return <Text text="?" fontSize={width * 0.8} fill="red" align="center" verticalAlign="middle" width={width} height={height} />;
+  }
+
   return (
-    <>
+    <Group>
       {pathData.map((path, index) => (
-        <Path key={index} data={path} fill={fill} x={x} y={y} width={width} height={height} scaleX={width / 16} scaleY={height / 16} />
+        <Path 
+            key={index} 
+            data={path} 
+            fill={fill} 
+            scaleX={width / 16} 
+            scaleY={height / 16} 
+        />
       ))}
-    </>
+    </Group>
   );
 };
 

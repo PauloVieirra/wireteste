@@ -71,7 +71,7 @@ export function AuthenticatedLayout({ user, children, onLogout, hasUnsavedChange
   const PlanIcon = currentPlan.icon;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="px-6 py-4 flex items-center justify-between">
@@ -222,7 +222,7 @@ export function AuthenticatedLayout({ user, children, onLogout, hasUnsavedChange
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main className="flex-1 flex">
         {children}
       </main>
 
