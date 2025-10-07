@@ -711,7 +711,7 @@ export default function App() {
             </header>
           )}
 
-          <div class="flex-1">
+          <div className="flex-1">
             {currentView === 'projects' && (
               <ProjectList
                 items={displayList}
@@ -784,6 +784,7 @@ export default function App() {
               <WireframeEditor
                 project={selectedProject}
                 onUpdateProject={handleLocalProjectUpdate} // Usar a nova função de atualização local
+                onBack={goBack}
               />
             )}
 

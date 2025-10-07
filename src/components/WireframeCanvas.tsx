@@ -10,7 +10,7 @@ import KonvaIconRenderer from './KonvaIconRenderer';
 // --- DATA STRUCTURES (from WireframeEditor) ---
 interface WireframeElement {
   id: string;
-  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon';
+  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon' | 'frame';
   x: number;
   y: number;
   width: number;
@@ -86,7 +86,7 @@ interface WireframeCanvasProps {
 }
 
 // --- SINGLE ELEMENT COMPONENT ---
-const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions }) => {
+const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, wireframe, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions, draggable: draggableProp = true }) => {
   const shapeRef = useRef<Konva.Node>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -140,21 +140,37 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
     y: element.y,
     width: element.width,
     height: element.height,
-    draggable: true,
+    draggable: draggableProp,
     onClick: () => onSelect(element.id),
     onTap: () => onSelect(element.id),
     onDragEnd: (e) => {
-      const node = e.target;
-      const { width: canvasWidth, height: canvasHeight } = canvasDimensions;
-      
-      const newX = Math.max(0, Math.min(node.x(), canvasWidth - node.width()));
-      const newY = Math.max(0, Math.min(node.y(), canvasHeight - node.height()));
+      e.cancelBubble = true;
+      const absolutePos = e.target.getAbsolutePosition();
+      onElementDragEnd(element.id, absolutePos.x, absolutePos.y);
+    },
+    dragBoundFunc: function (pos) {
+        const node = shapeRef.current;
+        if (!node) return pos;
 
-      node.position({ x: newX, y: newY });
-      onElementDragEnd(element.id, newX, newY);
+        const parent = element.parentId ? wireframe.elements.find(el => el.id === element.parentId) : null;
+
+        if (parent) {
+            // Allow free movement for child elements during drag. Clamping is handled in onDragEnd.
+            return pos;
+        } else {
+            // This is a top-level element. 'pos' is absolute.
+            // Constrain it to the canvas boundaries.
+            const minX = 0;
+            const minY = 0;
+            const maxX = canvasDimensions.width - node.width();
+            const maxY = canvasDimensions.height - node.height();
+
+            const newX = Math.max(minX, Math.min(pos.x, maxX));
+            const newY = Math.max(minY, Math.min(pos.y, maxY));
+            return { x: newX, y: newY };
+        }
     },
   };
-
   let component;
   switch (element.type) {
     case 'rectangle':
@@ -329,6 +345,20 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
         );
       }
       break;
+    case 'frame':
+      component = (
+        <Group {...commonProps} ref={shapeRef}>
+          <Rect
+            width={element.width}
+            height={element.height}
+            fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : element.backgroundColor || 'transparent'}
+            stroke={isSelected ? 'lightblue' : '#e5e7eb'}
+            strokeWidth={2}
+            dash={[10, 5]}
+          />
+        </Group>
+      );
+      break;
     default:
       component = (
         <Rect
@@ -347,38 +377,19 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
     <Fragment>
       {component}
       {isSelected && (
-        <Transformer
-          ref={trRef}
-          keepRatio={element.type === 'circle'}
-          enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
-          boundBoxFunc={(oldBox, newBox) => {
-            const minSize = getElementMinimumSize(element.type);
-            const { width: canvasWidth, height: canvasHeight } = canvasDimensions;
-
-            const box = { ...newBox };
-
-            if (box.x < 0) {
-              box.width += box.x;
-              box.x = 0;
-            }
-            if (box.y < 0) {
-              box.height += box.y;
-              box.y = 0;
-            }
-            if (box.x + box.width > canvasWidth) {
-              box.width = canvasWidth - box.x;
-            }
-            if (box.y + box.height > canvasHeight) {
-              box.height = canvasHeight - box.y;
-            }
-            
-            if (box.width < minSize || box.height < minSize) {
-                return oldBox;
-            }
-
-            return box;
-          }}
-          onTransformEnd={(e) => {
+                  <Transformer
+                    ref={trRef}
+                    keepRatio={element.type === 'circle'}
+                    enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
+                    ignoreStroke={true}
+                    centeredScaling={false}
+                    boundBoxFunc={(oldBox, newBox) => {
+                      const minSize = getElementMinimumSize(element.type);
+                      if (Math.abs(newBox.width) < minSize || Math.abs(newBox.height) < minSize) {
+                        return oldBox;
+                      }
+                      return newBox;
+                    }}          onTransformEnd={(e) => {
             const node = shapeRef.current;
             if (!node) return;
 
@@ -387,17 +398,15 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             node.scaleX(1);
             node.scaleY(1);
 
-            let newWidth = Math.max(getElementMinimumSize(element.type), node.width() * scaleX);
-            let newHeight = Math.max(getElementMinimumSize(element.type), node.height() * scaleY);
+            const minSize = getElementMinimumSize(element.type);
 
-            if (element.type === 'text') {
-              const textNode = node as Konva.Text;
-              const tempNode = textNode.clone({ listening: false });
-              tempNode.height(undefined);
-              tempNode.width(newWidth);
-              const autoHeight = tempNode.height();
-              newHeight = Math.max(newHeight, autoHeight);
-            } else if (element.type === 'circle') {
+            let newWidth = node.width() * scaleX;
+            let newHeight = node.height() * scaleY;
+
+            newWidth = (isNaN(newWidth) || !isFinite(newWidth)) ? minSize : Math.max(minSize, newWidth);
+            newHeight = (isNaN(newHeight) || !isFinite(newHeight)) ? minSize : Math.max(minSize, newHeight);
+
+            if (element.type === 'circle') {
               newWidth = newHeight = Math.max(newWidth, newHeight);
             }
             
@@ -493,41 +502,82 @@ export const WireframeCanvas = React.forwardRef(({
 
   useEffect(() => {
     const stage = (ref as React.MutableRefObject<Konva.Stage>)?.current;
-    if (stage) {
+    if (stage && stage.container()) {
       stage.container().style.cursor = 'default';
     }
   }, [ref]);
 
+  const renderElement = (element: WireframeElement) => (
+    <CanvasElement
+      key={element.id}
+      element={element}
+      isSelected={element.id === selectedElementId}
+      onSelect={onSelectElement}
+      onUpdate={onUpdateElement}
+      zoom={zoom}
+      project={project}
+      wireframe={wireframe}
+      getFontSize={getFontSize}
+      getFontFamilyCSS={getFontFamilyCSS}
+      getElementMinimumSize={getElementMinimumSize}
+      onElementDragEnd={onElementDragEnd}
+      onElementTransformEnd={onElementTransformEnd}
+      canvasDimensions={canvasDimensions}
+    />
+  );
+
   return (
     <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center', border: '1px solid #ccc', boxShadow: '0 0 10px rgba(0,0,0,0.1)' }}>
       <Stage
+        ref={ref as React.RefObject<Konva.Stage>}
         width={canvasDimensions.width}
         height={canvasDimensions.height}
         className="bg-white"
         onMouseDown={onCanvasMouseDown}
-        ref={ref}
       >
         <GridOverlay width={canvasDimensions.width} height={canvasDimensions.height} gridConfig={gridConfig} />
         <Layer>
           {wireframe.elements
+            .filter(el => !el.parentId)
             .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-            .map(element => (
-            <CanvasElement
-              key={element.id}
-              element={element}
-              isSelected={element.id === selectedElementId}
-              onSelect={onSelectElement}
-              onUpdate={onUpdateElement}
-              zoom={zoom}
-              project={project}
-              getFontSize={getFontSize}
-              getFontFamilyCSS={getFontFamilyCSS}
-              getElementMinimumSize={getElementMinimumSize}
-              onElementDragEnd={onElementDragEnd}
-              onElementTransformEnd={onElementTransformEnd}
-              canvasDimensions={canvasDimensions}
-            />
-          ))}
+            .map(element => {
+              if (element.type === 'frame') {
+                const children = wireframe.elements.filter(el => el.parentId === element.id);
+                return (
+                  <Group key={element.id} x={element.x} y={element.y} draggable onDragEnd={(e) => {
+                    if (e.target === e.currentTarget) { // Only fire if the group itself was dragged
+                      onElementDragEnd(element.id, e.currentTarget.x(), e.currentTarget.y());
+                    }
+                  }}
+                  dragBoundFunc={(pos) => {
+                    const newX = Math.max(0, Math.min(pos.x, canvasDimensions.width - element.width));
+                    const newY = Math.max(0, Math.min(pos.y, canvasDimensions.height - element.height));
+                    return { x: newX, y: newY };
+                  }}
+                  >
+                    <CanvasElement
+                      key={element.id}
+                      element={{...element, x: 0, y: 0}}
+                      isSelected={element.id === selectedElementId}
+                      onSelect={onSelectElement}
+                      onUpdate={onUpdateElement}
+                      zoom={zoom}
+                      project={project}
+                      wireframe={wireframe}
+                      getFontSize={getFontSize}
+                      getFontFamilyCSS={getFontFamilyCSS}
+                      getElementMinimumSize={getElementMinimumSize}
+                      onElementDragEnd={onElementDragEnd}
+                      onElementTransformEnd={onElementTransformEnd}
+                      canvasDimensions={canvasDimensions}
+                      draggable={false}
+                    />
+                    {children.map(child => renderElement(child))}
+                  </Group>
+                );
+              }
+              return renderElement(element);
+            })}
         </Layer>
       </Stage>
     </div>

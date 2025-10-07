@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -38,6 +38,7 @@ const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-297754
 const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 
 import {
+  ArrowLeft,
   Square,
   Circle,
   Minus,
@@ -62,9 +63,11 @@ import {
   Star // Added Star for default icon rendering
 } from 'lucide-react';
 
+import Frame from './Frame';
+
 interface WireframeElement {
   id: string;
-  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon';
+  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon' | 'frame';
   x: number;
   y: number;
   width: number;
@@ -132,6 +135,7 @@ interface Project {
 interface WireframeEditorProps {
   project: Project;
   onUpdateProject: (project: Project) => void;
+  onBack: () => void;
 }
 
 const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' | 'desktop' | 'custom') => {
@@ -185,7 +189,7 @@ const getElementMinimumSize = (elementType: string) => {
   }
 };
 
-export function WireframeEditor({ project, onUpdateProject }: WireframeEditorProps) {
+export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeEditorProps) {
   const [selectedTool, setSelectedTool] = useState<string>('select');
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [activeWireframe, setActiveWireframe] = useState<string>('none');
@@ -207,9 +211,11 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'Atualizado' | 'Atualizar' | 'Salvando...' | 'Verificando...' | 'Erro ao salvar'>('Atualizado');
 
+
   const stageRef = useRef<Konva.Stage>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const isPointerInsideRef = useRef(false);
+  const scrollPos = useRef({ left: 0, top: 0, shouldUpdate: false });
   const { showToast } = useToast();
 
   const updateAndSaveProject = (updatedProject: Project) => {
@@ -314,27 +320,31 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     triggerUnsyncedState();
     const updatedProject = {
       ...project,
-      wireframes: project.wireframes.map(w => 
-        activeWireframe !== 'none' && w.id === activeWireframe 
-          ? { 
-              ...w, 
+      wireframes: project.wireframes.map(w =>
+        activeWireframe !== 'none' && w.id === activeWireframe
+          ? {
+              ...w,
               elements: w.elements.map(el => {
                 if (el.id === elementId) {
-                  const updatedElement = { ...el, ...props };
-                  
-                  if (el.type === 'icon') {
+                  const updatedEl = { ...el, ...props };
+
+                  if (props.hasOwnProperty('parentId') && props.parentId === undefined) {
+                    delete updatedEl.parentId;
+                  }
+
+                  if (updatedEl.type === 'icon') {
                     if (props.width !== undefined) {
-                      updatedElement.width = Math.max(14, props.width);
+                      updatedEl.width = Math.max(14, props.width);
                     }
                     if (props.height !== undefined) {
-                      updatedElement.height = Math.max(14, props.height);
+                      updatedEl.height = Math.max(14, props.height);
                     }
                   }
-                  
-                  return updatedElement;
+
+                  return updatedEl;
                 }
                 return el;
-              }) 
+              })
             }
           : w
       )
@@ -370,6 +380,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   useEffect(() => {
     if (project.wireframes.length > 0 && activeWireframe === 'none') {
       setActiveWireframe(project.wireframes[0].id);
+      setZoom(1);
     }
   }, [project.wireframes, activeWireframe]);
 
@@ -466,23 +477,17 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
       if (isPointerInsideRef.current && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
-
-        const step = -e.deltaY * 0.0015;
-        setZoom(prev => {
-          let next = prev + step;
-          next = Math.max(0.2, Math.min(3, next));
-          return next;
-        });
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        setZoom(z => Math.max(0.1, Math.min(3, z + delta)));
       }
     };
 
-    const options = { passive: false, capture: true };
-    window.addEventListener('wheel', onWheel, options as AddEventListenerOptions);
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
 
     return () => {
-      window.removeEventListener('wheel', onWheel, options as AddEventListenerOptions);
+      window.removeEventListener('wheel', onWheel, { capture: true });
     };
-  }, [setZoom]);
+  }, []);
 
   const handleToolDragStart = (e: React.DragEvent, toolType: string) => {
     e.stopPropagation();
@@ -581,6 +586,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
         case 'icon': return { width: Math.max(24, 40), height: Math.max(24, 40) };
         case 'line': return { width: 100, height: 2 };
         case 'circle': return { width: 60, height: 60 };
+        case 'frame': return { width: 200, height: 150 };
         default: return { width: 80, height: 60 };
       }
     };
@@ -598,13 +604,13 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
       width: minSize.width,
       height: minSize.height,
       text: toolType === 'text' ? 'Texto' : toolType === 'button' ? 'Button' : undefined,
-      backgroundColor: toolType === 'text' ? 'transparent' : '#ffffff',
+      backgroundColor: toolType === 'text' || toolType === 'frame' ? 'transparent' : '#ffffff',
       textLevel: toolType === 'text' ? 'h3' : toolType === 'button' ? 'p' : undefined,
       textColor: 'var(--foreground)',
       textAlign: 'center',
       zIndex: 0,
-      borderWidth: toolType === 'text' ? 0 : 2,
-      borderColor: '#d1d5db',
+      borderWidth: toolType === 'text' ? 0 : toolType === 'frame' ? 2 : 2,
+      borderColor: toolType === 'frame' ? 'lightblue' : '#d1d5db',
       imageSrc: toolType === 'image' ? imageplaceholder : undefined,
       videoSrc: toolType === 'video' ? videoplaceholder : undefined,
       iconName: toolType === 'icon' ? 'Star' : undefined,
@@ -624,10 +630,15 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
     setSelectedElement(newElement.id);
     
     const elementTypeNames = {
-      'text': 'Texto', 'button': 'Botão', 'rectangle': 'Retângulo', 'circle': 'Círculo', 'line': 'Linha', 'image': 'Imagem', 'video': 'Vídeo', 'icon': 'Ícone'
+      'text': 'Texto', 'button': 'Botão', 'rectangle': 'Retângulo', 'circle': 'Círculo', 'line': 'Linha', 'image': 'Imagem', 'video': 'Vídeo', 'icon': 'Ícone', 'frame': 'Frame'
     };
     
     showToast(`${elementTypeNames[toolType as keyof typeof elementTypeNames] || 'Elemento'} adicionado com sucesso!`, 'success');
+  };
+
+  const handleSelectWireframe = (wireframeId: string) => {
+    setActiveWireframe(wireframeId);
+    setZoom(1);
   };
 
   const handleAddWireframe = () => {
@@ -820,6 +831,43 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   const handleCanvasMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.target === e.target.getStage()) {
       setSelectedElement(null);
+
+      if (canvasContainerRef.current) {
+        const panState = {
+            isPanning: true,
+            startX: e.evt.pageX,
+            startY: e.evt.pageY,
+            scrollLeft: canvasContainerRef.current.scrollLeft,
+            scrollTop: canvasContainerRef.current.scrollTop,
+        };
+        const container = canvasContainerRef.current;
+        container.style.cursor = 'grabbing';
+        container.style.userSelect = 'none';
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            if (!panState.isPanning) return;
+            moveEvent.preventDefault();
+
+            const x = moveEvent.pageX;
+            const y = moveEvent.pageY;
+            const walkX = x - panState.startX;
+            const walkY = y - panState.startY;
+            container.scrollLeft = panState.scrollLeft - walkX;
+            container.scrollTop = panState.scrollTop - walkY;
+        };
+
+        const handleMouseUp = () => {
+            panState.isPanning = false;
+            container.style.cursor = 'default';
+            container.style.userSelect = 'auto';
+
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+      }
     }
   }, []);
 
@@ -887,12 +935,60 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
   }, []);
 
   const handleElementDragEnd = useCallback((elementId: string, newX: number, newY: number) => {
-    updateElementProperties(elementId, { x: newX, y: newY });
+    if (!currentWireframe) {
+      return;
+    }
+
+    const element = currentWireframe.elements.find(el => el.id === elementId);
+    if (!element) {
+      return;
+    }
+
+    // Clamp the absolute position to the canvas boundaries
+    const clampedX = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
+    const clampedY = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
+
+    if (element.type === 'frame') {
+      updateElementProperties(elementId, { x: clampedX, y: clampedY });
+      return;
+    }
+
+    const frames = currentWireframe.elements.filter(el => el.type === 'frame');
+    let newParent: WireframeElement | undefined = undefined;
+
+    for (const frame of frames) {
+      if (
+        frame.id !== elementId &&
+        clampedX >= frame.x && clampedX < frame.x + frame.width &&
+        clampedY >= frame.y && clampedY < frame.y + frame.height
+      ) {
+        if (!newParent || (frame.zIndex || 0) > (newParent.zIndex || 0)) {
+          newParent = frame;
+        }
+      }
+    }
+
+    if (newParent) {
+      const finalX = clampedX - newParent.x;
+      const finalY = clampedY - newParent.y;
+      updateElementProperties(elementId, { x: finalX, y: finalY, parentId: newParent.id });
+    } else {
+      updateElementProperties(elementId, { x: clampedX, y: clampedY, parentId: undefined });
+    }
+  }, [currentWireframe, updateElementProperties, showToast, canvasDimensions]);
+
+  const handleReparentElement = useCallback((elementId: string, newParentId: string | null, newX: number, newY: number) => {
+    updateElementProperties(elementId, { x: newX, y: newY, parentId: newParentId === null ? undefined : newParentId });
   }, [updateElementProperties]);
 
   const handleElementTransformEnd = useCallback((elementId: string, newX: number, newY: number, newWidth: number, newHeight: number) => {
-    updateElementProperties(elementId, { x: newX, y: newY, width: newWidth, height: newHeight });
-  }, [updateElementProperties]);
+    const element = currentWireframe?.elements.find(el => el.id === elementId);
+    if (element && element.type === 'frame') {
+        updateElementProperties(elementId, { width: newWidth, height: newHeight });
+    } else {
+        updateElementProperties(elementId, { x: newX, y: newY, width: newWidth, height: newHeight });
+    }
+  }, [updateElementProperties, currentWireframe]);
 
   const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
 
@@ -1085,7 +1181,11 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
   return (
     <div className="h-full flex flex-col relative">
       <div className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={onBack}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Voltar
+            </Button>
             <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -1177,12 +1277,13 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                 wireframes={project.wireframes}
                 activeWireframe={activeWireframe}
                 selectedElement={selectedElement}
-                onSelectWireframe={setActiveWireframe}
+                onSelectWireframe={handleSelectWireframe}
                 onSelectElement={setSelectedElement}
                 onUpdateWireframe={handleUpdateWireframe}
                 onUpdateElement={updateElementProperty}
                 onDeleteWireframe={handleDeleteWireframe}
                 onDeleteElement={handleDeleteSelectedElement}
+                onReparentElement={handleReparentElement}
               />
             </div>
           </ResizablePanel>
@@ -1204,7 +1305,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
               onDrop={handleCanvasDrop}
               onPaste={handleCanvasPaste}
             >
-              <div className="flex items-center justify-center min-h-full min-w-full p-8">
+              <div className="flex justify-center w-full" style={{padding: '80px 50px'}}>
                 <div
                   className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
                   style={{
@@ -1264,6 +1365,10 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         <Minus className="w-4 h-4" />
                         <span className="text-xs">Linha</span>
                       </Button>
+                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'frame')} onDragEnd={handleDragEnd} draggable>
+                        <Square className="w-4 h-4" />
+                        <span className="text-xs">Frame</span>
+                      </Button>
                     </div>
                   </div>
 
@@ -1307,7 +1412,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
                       </div>
 
-                      <DimensionEditor element={selectedElementData} onUpdate={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={project.resolution} />
+                      <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={project.resolution} />
 
                       {selectedElementData.type === 'text' && (
                         <div className="pt-2">

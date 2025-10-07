@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 
@@ -15,74 +15,103 @@ interface DimensionEditorProps {
 }
 
 export function DimensionEditor({ element, onChange, canvasDimensions }: DimensionEditorProps) {
-  // Get minimum size based on element type
   const getMinimumSize = (elementType?: string) => {
     switch (elementType) {
-      case 'icon': return 14; // Minimum 14px for icons
-      case 'line': return 2;  // Very small minimum for lines
-      default: return 5;      // General minimum for other elements
+      case 'icon': return 14;
+      case 'line': return 2;
+      default: return 5;
     }
   };
 
-  const handleValueChange = (property: 'x' | 'y' | 'width' | 'height', value: string) => {
-    // Allow empty string for editing purposes
-    if (value === '') {
-      return;
+  const [widthStr, setWidthStr] = useState(String(Math.round(element.width)));
+  const [heightStr, setHeightStr] = useState(String(Math.round(element.height)));
+
+  useEffect(() => {
+    if (document.activeElement?.id !== 'width-input') {
+        setWidthStr(String(Math.round(element.width)));
     }
-    
+  }, [element.width]);
+
+  useEffect(() => {
+    if (document.activeElement?.id !== 'height-input') {
+        setHeightStr(String(Math.round(element.height)));
+    }
+  }, [element.height]);
+
+  const parseAndValidate = (property: 'width' | 'height', value: string) => {
     let numValue: number;
-    
-    // Check if value contains % for width/height
-    if ((property === 'width' || property === 'height') && value.includes('%')) {
+    const minSize = getMinimumSize(element.type);
+
+    if (value.includes('%') && canvasDimensions) {
       const percentValue = parseFloat(value.replace('%', ''));
-      if (!isNaN(percentValue) && canvasDimensions) {
-        // Convert percentage to pixels
+      if (!isNaN(percentValue)) {
         const dimension = property === 'width' ? canvasDimensions.width : canvasDimensions.height;
         numValue = (percentValue / 100) * dimension;
       } else {
-        return;
+        return null; // Invalid percentage
       }
     } else {
       numValue = parseFloat(value);
-      if (isNaN(numValue)) return;
-    }
-    
-    // Apply constraints based on canvas dimensions and element type
-    let validValue = numValue;
-    const minSize = getMinimumSize(element.type);
-    
-    if (property === 'width' && canvasDimensions) {
-      validValue = Math.max(minSize, Math.min(canvasDimensions.width, numValue));
-    } else if (property === 'height' && canvasDimensions) {
-      validValue = Math.max(minSize, Math.min(canvasDimensions.height, numValue));
-    } else if (property === 'x' && canvasDimensions) {
-      validValue = Math.max(0, Math.min(canvasDimensions.width - element.width, numValue));
-    } else if (property === 'y' && canvasDimensions) {
-      validValue = Math.max(0, Math.min(canvasDimensions.height - element.height, numValue));
-    } else if (property === 'width' || property === 'height') {
-      validValue = Math.max(minSize, numValue);
-    } else {
-      validValue = Math.max(0, numValue);
-    }
-    
-    // Use requestAnimationFrame to ensure smooth updates
-    requestAnimationFrame(() => {
-      onChange(property, validValue);
-    });
-  };
-  
-  // Convert width/height to percentage display when appropriate
-  const getDisplayValue = (property: 'x' | 'y' | 'width' | 'height', value: number) => {
-    if ((property === 'width' || property === 'height') && canvasDimensions) {
-      const dimension = property === 'width' ? canvasDimensions.width : canvasDimensions.height;
-      const percentage = Math.round((value / dimension) * 100);
-      // Show percentage if it's a round number, otherwise show pixels
-      if (Math.abs((percentage / 100) * dimension - value) < 1) {
-        return `${percentage}%`;
+      if (isNaN(numValue)) {
+        return null; // Not a number
       }
     }
-    return Math.round(value).toString();
+
+    let validValue = numValue;
+    if (property === 'width') {
+      validValue = Math.max(minSize, Math.min(canvasDimensions?.width ?? Infinity, numValue));
+    } else if (property === 'height') {
+      validValue = Math.max(minSize, Math.min(canvasDimensions?.height ?? Infinity, numValue));
+    }
+    return validValue;
   };
+
+  const handleDimensionChange = (property: 'width' | 'height', value: string) => {
+    if (property === 'width') {
+      setWidthStr(value);
+    } else {
+      setHeightStr(value);
+    }
+
+    if (value.trim() === '') return; // Allow empty input while typing
+
+    const validValue = parseAndValidate(property, value);
+    if (validValue !== null) {
+      onChange(property, validValue);
+    }
+  };
+
+  const handleBlur = (property: 'width' | 'height') => {
+    const value = property === 'width' ? widthStr : heightStr;
+    if (value.trim() === '') {
+      onChange(property, 1);
+    } else {
+      const validValue = parseAndValidate(property, value);
+      if (validValue === null) {
+        // If value is invalid on blur (e.g., "abc"), set to 1
+        onChange(property, 1);
+      } else {
+        // If value is valid, ensure it's re-sent to parent to be sure
+        onChange(property, validValue);
+      }
+    }
+  };
+
+  const handlePosChange = (property: 'x' | 'y', value: string) => {
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) return;
+
+    let validValue = numValue;
+    if (canvasDimensions) {
+        if (property === 'x') {
+            validValue = Math.max(0, Math.min(canvasDimensions.width - element.width, numValue));
+        } else { // 'y'
+            validValue = Math.max(0, Math.min(canvasDimensions.height - element.height, numValue));
+        }
+    }
+    onChange(property, validValue);
+  };
+
 
   return (
     <div className="space-y-3">
@@ -93,9 +122,11 @@ export function DimensionEditor({ element, onChange, canvasDimensions }: Dimensi
           <Label className="text-xs text-muted-foreground">X (px)</Label>
           <Input
             type="number"
+            min="0"
+            max={canvasDimensions ? canvasDimensions.width - element.width : undefined}
             step="1"
             value={Math.round(element.x)}
-            onChange={(e) => handleValueChange('x', e.target.value)}
+            onChange={(e) => handlePosChange('x', e.target.value)}
             className="mt-1"
           />
         </div>
@@ -103,9 +134,11 @@ export function DimensionEditor({ element, onChange, canvasDimensions }: Dimensi
           <Label className="text-xs text-muted-foreground">Y (px)</Label>
           <Input
             type="number"
+            min="0"
+            max={canvasDimensions ? canvasDimensions.height - element.height : undefined}
             step="1"
             value={Math.round(element.y)}
-            onChange={(e) => handleValueChange('y', e.target.value)}
+            onChange={(e) => handlePosChange('y', e.target.value)}
             className="mt-1"
           />
         </div>
@@ -115,9 +148,11 @@ export function DimensionEditor({ element, onChange, canvasDimensions }: Dimensi
         <div>
           <Label className="text-xs text-muted-foreground">Largura (px ou %)</Label>
           <Input
+            id="width-input"
             type="text"
-            value={getDisplayValue('width', element.width)}
-            onChange={(e) => handleValueChange('width', e.target.value)}
+            value={widthStr}
+            onChange={(e) => handleDimensionChange('width', e.target.value)}
+            onBlur={() => handleBlur('width')}
             className="mt-1"
             placeholder="100 ou 50%"
           />
@@ -125,9 +160,11 @@ export function DimensionEditor({ element, onChange, canvasDimensions }: Dimensi
         <div>
           <Label className="text-xs text-muted-foreground">Altura (px ou %)</Label>
           <Input
+            id="height-input"
             type="text"
-            value={getDisplayValue('height', element.height)}
-            onChange={(e) => handleValueChange('height', e.target.value)}
+            value={heightStr}
+            onChange={(e) => handleDimensionChange('height', e.target.value)}
+            onBlur={() => handleBlur('height')}
             className="mt-1"
             placeholder="100 ou 50%"
           />

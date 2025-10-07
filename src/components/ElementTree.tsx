@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { 
@@ -31,7 +31,7 @@ import {
 // Copied from WireframeEditor.tsx - consider moving to a shared types file
 interface WireframeElement {
   id: string;
-  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon';
+  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon' | 'frame';
   x: number;
   y: number;
   width: number;
@@ -66,10 +66,10 @@ interface ElementTreeProps {
   onSelectWireframe: (wireframeId: string) => void;
   onSelectElement: (elementId: string | null) => void;
   onUpdateWireframe: (wireframeId: string, updates: Partial<Wireframe>) => void;
-  onUpdateElement: (elementId: string, updates: Partial<WireframeElement>) => void;
+  onUpdateElement: (elementId: string, property: string, value: any) => void;
   onDeleteWireframe: (wireframeId: string) => void;
   onDeleteElement: (elementId: string) => void;
-  // onMoveElement: (elementId: string, newParentId: string | null, targetWireframeId: string) => void;
+  onReparentElement: (elementId: string, newParentId: string | null, newX: number, newY: number) => void;
 }
 
 interface TreeNode {
@@ -86,6 +86,7 @@ const truncateName = (name: string, length: number) => {
 
 const getElementIcon = (type: string) => {
   switch (type) {
+    case 'frame': return Folder;
     case 'rectangle': case 'button': return Square;
     case 'circle': return Circle;
     case 'text': return Type;
@@ -113,16 +114,21 @@ export function ElementTree({
   onUpdateElement, 
   onDeleteWireframe,
   onDeleteElement,
-  // onMoveElement 
+  onReparentElement
 }: ElementTreeProps) {
   const [expandedWireframes, setExpandedWireframes] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [wireframeToDelete, setWireframeToDelete] = useState<string | null>(null);
+  
+  // DND State
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
 
   useEffect(() => {
-    // Automatically expand the active wireframe
     if (activeWireframe && !expandedWireframes.has(activeWireframe)) {
       toggleWireframe(activeWireframe, true);
     }
@@ -170,7 +176,7 @@ export function ElementTree({
       if (isWireframe) {
         onUpdateWireframe(editingId, { name: editingValue });
       } else {
-        onUpdateElement(editingId, { name: editingValue });
+        onUpdateElement(editingId, 'name', editingValue);
       }
       setEditingId(null);
       setEditingValue('');
@@ -181,6 +187,117 @@ export function ElementTree({
     setEditingId(null);
     setEditingValue('');
   };
+
+  // --- DND Handlers ---
+  const handleDragStart = (e: React.DragEvent, element: WireframeElement) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/json', JSON.stringify(element));
+    setDraggedItemId(element.id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetElement?: WireframeElement) => {
+    e.preventDefault();
+    const draggedItem = getDraggedItem(e);
+    if (!draggedItem) return;
+
+    if (targetElement) {
+      // Can't drop on itself or its own children
+      if (draggedItem.id === targetElement.id || isDescendant(targetElement.id, draggedItem.id)) {
+        setDropTargetId(null);
+        return;
+      }
+      // Only frames can be drop targets
+      if (targetElement.type === 'frame') {
+        setDropTargetId(targetElement.id);
+      } else {
+        setDropTargetId(null);
+      }
+    } else {
+      // Hovering over the root drop zone
+      setDropTargetId('root');
+    }
+  };
+  
+  const handleDragLeave = () => {
+    setDropTargetId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropTarget?: WireframeElement) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const draggedItem = getDraggedItem(e);
+    if (!draggedItem) return;
+
+    const currentElements = wireframes.find(w => w.id === activeWireframe)?.elements || [];
+    const oldParent = currentElements.find(el => el.id === draggedItem.parentId);
+
+    let newParentId: string | null = null;
+    if (dropTarget && dropTarget.type === 'frame' && dropTarget.id !== draggedItem.id) {
+      newParentId = dropTarget.id;
+    }
+
+    // If dropping on the same parent, do nothing
+    if (draggedItem.parentId === newParentId) {
+      cleanupDragState();
+      return;
+    }
+
+    let newX = draggedItem.x;
+    let newY = draggedItem.y;
+
+    // Reparenting logic with coordinate conversion
+    if (newParentId && !draggedItem.parentId) {
+      // Moving from root into a frame
+      const newParent = currentElements.find(el => el.id === newParentId);
+      if (newParent) {
+        newX = draggedItem.x - newParent.x;
+        newY = draggedItem.y - newParent.y;
+      }
+    } else if (!newParentId && draggedItem.parentId) {
+      // Moving from a frame to root
+      if (oldParent) {
+        newX = draggedItem.x + oldParent.x;
+        newY = draggedItem.y + oldParent.y;
+      }
+    } else if (newParentId && draggedItem.parentId) {
+      // Moving from one frame to another
+      const newParent = currentElements.find(el => el.id === newParentId);
+      if (oldParent && newParent) {
+        newX = (draggedItem.x + oldParent.x) - newParent.x;
+        newY = (draggedItem.y + oldParent.y) - newParent.y;
+      }
+    }
+    
+    onReparentElement(draggedItem.id, newParentId, newX, newY);
+    cleanupDragState();
+  };
+
+  const cleanupDragState = () => {
+    setDraggedItemId(null);
+    setDropTargetId(null);
+  };
+
+  const getDraggedItem = (e: React.DragEvent): WireframeElement | null => {
+    try {
+      return JSON.parse(e.dataTransfer.getData('application/json'));
+    } catch {
+      return null;
+    }
+  };
+
+  const isDescendant = (potentialChildId: string, parentId: string): boolean => {
+      const currentElements = wireframes.find(w => w.id === activeWireframe)?.elements || [];
+      let currentId: string | undefined = potentialChildId;
+      while(currentId) {
+          const el = currentElements.find(e => e.id === currentId);
+          if (!el) return false;
+          if (el.parentId === parentId) return true;
+          currentId = el.parentId;
+      }
+      return false;
+  }
+
 
   const buildTree = (elements: WireframeElement[]): TreeNode[] => {
     const elementMap = new Map<string, WireframeElement>();
@@ -196,8 +313,13 @@ export function ElementTree({
     elements.forEach(element => {
       const node = nodeMap.get(element.id)!;
       if (element.parentId && nodeMap.has(element.parentId)) {
-        const parent = nodeMap.get(element.parentId)!;
-        parent.children.push(node);
+        const parentNode = nodeMap.get(element.parentId);
+        // Ensure parent is a frame before adding child
+        if (parentNode && parentNode.element.type === 'frame') {
+            parentNode.children.push(node);
+        } else {
+            roots.push(node);
+        }
       } else {
         roots.push(node);
       }
@@ -219,14 +341,23 @@ export function ElementTree({
     const isExpanded = expandedNodes.has(element.id);
     const isSelected = selectedElement === element.id;
     const isEditing = editingId === element.id;
+    const isDropTarget = dropTargetId === element.id;
+    const isDragged = draggedItemId === element.id;
     const IconComponent = getElementIcon(element.type);
 
     return (
-      <div key={element.id} className="select-none">
+      <div key={element.id} className="select-none"
+        onDragOver={(e) => handleDragOver(e, element)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, element)}
+      >
         <div
+          draggable={!isEditing}
+          onDragStart={(e) => handleDragStart(e, element)}
+          onDragEnd={cleanupDragState}
           className={`flex items-center py-1 px-2 rounded text-sm cursor-pointer hover:bg-accent group ${
             isSelected ? 'bg-primary text-primary-foreground' : ''
-          }`}
+          } ${isDropTarget ? 'bg-blue-200' : ''} ${isDragged ? 'opacity-50' : ''}`}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           onClick={() => {
             if (isEditing) return;
@@ -299,6 +430,7 @@ export function ElementTree({
     const isWireframeActive = activeWireframe === wireframe.id;
     const isEditing = editingId === wireframe.id;
     const elementTree = buildTree(wireframe.elements);
+    const isRootDropTarget = dropTargetId === 'root';
 
     return (
       <div key={wireframe.id} className="select-none">
@@ -360,7 +492,13 @@ export function ElementTree({
         </div>
 
         {isWireframeExpanded && (
-          <div className="pl-4 border-l-2 border-dashed border-border ml-4">
+          <div 
+            ref={dropZoneRef}
+            onDragOver={(e) => handleDragOver(e)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e)}
+            className={`pl-4 border-l-2 border-dashed border-border ml-4 ${isRootDropTarget ? 'bg-blue-100' : ''}`}
+          >
             {elementTree.length > 0 ? (
               elementTree.map(node => renderNode(node, 1))
             ) : (
