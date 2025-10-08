@@ -481,12 +481,34 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
         setZoom(z => Math.max(0.1, Math.min(3, z + delta)));
       }
     };
-
     window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => window.removeEventListener('wheel', onWheel, { capture: true });
+  }, [setZoom]);
 
-    return () => {
-      window.removeEventListener('wheel', onWheel, { capture: true });
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+
+      const { scrollTop, scrollHeight, clientHeight, scrollLeft, scrollWidth, clientWidth } = container;
+
+      if (e.deltaY < 0 && scrollTop === 0) {
+        e.preventDefault();
+      }
+      if (e.deltaY > 0 && Math.abs(scrollHeight - clientHeight - scrollTop) < 1) {
+        e.preventDefault();
+      }
+      if (e.deltaX < 0 && scrollLeft === 0) {
+        e.preventDefault();
+      }
+      if (e.deltaX > 0 && Math.abs(scrollWidth - clientWidth - scrollLeft) < 1) {
+        e.preventDefault();
+      }
     };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
   }, []);
 
   const handleToolDragStart = (e: React.DragEvent, toolType: string) => {
@@ -828,48 +850,35 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     showToast('Elemento excluído!', 'success');
   };
 
-  const handleCanvasMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+  const handleCanvasMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.target === e.target.getStage()) {
+      if (!canvasContainerRef.current) return;
+      
       setSelectedElement(null);
+      const container = canvasContainerRef.current;
+      container.style.cursor = 'grabbing';
+      container.style.userSelect = 'none';
 
-      if (canvasContainerRef.current) {
-        const panState = {
-            isPanning: true,
-            startX: e.evt.pageX,
-            startY: e.evt.pageY,
-            scrollLeft: canvasContainerRef.current.scrollLeft,
-            scrollTop: canvasContainerRef.current.scrollTop,
-        };
-        const container = canvasContainerRef.current;
-        container.style.cursor = 'grabbing';
-        container.style.userSelect = 'none';
+      const startX = e.evt.pageX - container.scrollLeft;
+      const startY = e.evt.pageY - container.scrollTop;
 
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            if (!panState.isPanning) return;
-            moveEvent.preventDefault();
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        moveEvent.preventDefault();
+        container.scrollLeft = moveEvent.pageX - startX;
+        container.scrollTop = moveEvent.pageY - startY;
+      };
 
-            const x = moveEvent.pageX;
-            const y = moveEvent.pageY;
-            const walkX = x - panState.startX;
-            const walkY = y - panState.startY;
-            container.scrollLeft = panState.scrollLeft - walkX;
-            container.scrollTop = panState.scrollTop - walkY;
-        };
+      const handleMouseUp = () => {
+        container.style.cursor = 'grab';
+        container.style.userSelect = 'auto';
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
 
-        const handleMouseUp = () => {
-            panState.isPanning = false;
-            container.style.cursor = 'default';
-            container.style.userSelect = 'auto';
-
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
-
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-      }
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
     }
-  }, []);
+  };
 
   const handleCanvasPaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
@@ -1298,7 +1307,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
               onMouseLeave={() => (isPointerInsideRef.current = false)}
               onFocus={() => (isPointerInsideRef.current = true)}
               onBlur={() => (isPointerInsideRef.current = false)}
-              style={{ touchAction: 'none' }}
+              style={{ touchAction: 'none', cursor: 'grab' }}
               className="h-full w-full bg-gray-50 overflow-auto"
               onDragOver={handleCanvasDragOver}
               onDragLeave={handleCanvasDragLeave}
@@ -1307,33 +1316,40 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
             >
               <div className="flex justify-center w-full" style={{padding: '80px 50px'}}>
                 <div
-                  className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
                   style={{
-                    width: canvasDimensions.width,
-                    height: canvasDimensions.height,
-                    transform: `scale(${zoom})`,
-                    transformOrigin: 'center',
+                    width: canvasDimensions.width * zoom,
+                    height: canvasDimensions.height * zoom,
                   }}
-                  data-canvas-background="true"
                 >
-                  <WireframeCanvas
-                    ref={stageRef}
-                    project={project}
-                    wireframe={currentWireframe}
-                    zoom={1}
-                    onSelectElement={handleElementMouseDown}
-                    selectedElementId={selectedElement}
-                    onUpdateElement={updateElementProperty}
-                    onElementDragEnd={handleElementDragEnd}
-                    onElementTransformEnd={handleElementTransformEnd}
-                    canvasDimensions={canvasDimensions}
-                    gridConfig={gridConfig}
-                    getFontSize={getFontSize}
-                    getFontFamilyCSS={getFontFamilyCSS}
-                    getElementMinimumSize={getElementMinimumSize}
-                    onCanvasMouseDown={handleCanvasMouseDown}
-                  />
-                  <GridOverlay gridConfig={gridConfig} width={canvasDimensions.width} />
+                  <div
+                    className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
+                    style={{
+                      width: canvasDimensions.width,
+                      height: canvasDimensions.height,
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top left',
+                    }}
+                    data-canvas-background="true"
+                  >
+                    <WireframeCanvas
+                      ref={stageRef}
+                      project={project}
+                      wireframe={currentWireframe}
+                      zoom={1}
+                      onSelectElement={handleElementMouseDown}
+                      selectedElementId={selectedElement}
+                      onUpdateElement={updateElementProperty}
+                      onElementDragEnd={handleElementDragEnd}
+                      onElementTransformEnd={handleElementTransformEnd}
+                      canvasDimensions={canvasDimensions}
+                      gridConfig={gridConfig}
+                      getFontSize={getFontSize}
+                      getFontFamilyCSS={getFontFamilyCSS}
+                      getElementMinimumSize={getElementMinimumSize}
+                      onCanvasMouseDown={handleCanvasMouseDown}
+                    />
+                    <GridOverlay gridConfig={gridConfig} width={canvasDimensions.width} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1474,8 +1490,18 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         </>
                       )}
 
-                      {(selectedElementData.type === 'rectangle' || selectedElementData.type === 'button') && (
-                        <BorderRadiusPicker topLeft={selectedElementData.borderTopLeftRadius || 0} topRight={selectedElementData.borderTopRightRadius || 0} bottomLeft={selectedElementData.borderBottomLeftRadius || 0} bottomRight={selectedElementData.borderBottomRightRadius || 0} onChange={(corner, value) => { const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`; updateElementProperty(selectedElementData.id, propertyName, value); }} elementId={selectedElementData.id} />
+                      {(selectedElementData.type === 'rectangle' || selectedElementData.type === 'button' || selectedElementData.type === 'frame') && (
+                        <BorderRadiusPicker
+                          topLeft={selectedElementData.borderTopLeftRadius || 0}
+                          topRight={selectedElementData.borderTopRightRadius || 0}
+                          bottomLeft={selectedElementData.borderBottomLeftRadius || 0}
+                          bottomRight={selectedElementData.borderBottomRightRadius || 0}
+                          onChange={(corner, value) => {
+                            const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
+                            updateElementProperty(selectedElementData.id, propertyName, value);
+                          }}
+                          elementId={selectedElementData.id}
+                        />
                       )}
 
                       {selectedElementData.type === 'icon' && (

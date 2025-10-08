@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
@@ -23,13 +23,16 @@ export function BorderRadiusPicker({
 }: BorderRadiusPickerProps) {
   const [isLinked, setIsLinked] = useState(true);
 
+  useEffect(() => {
+    const allSame = topLeft === topRight && topLeft === bottomLeft && topLeft === bottomRight;
+    setIsLinked(allSame);
+  }, [topLeft, topRight, bottomLeft, bottomRight]);
+
   const handleUniformChange = (value: number) => {
-    if (isLinked) {
-      onChange('topLeft', value);
-      onChange('topRight', value);
-      onChange('bottomLeft', value);
-      onChange('bottomRight', value);
-    }
+    onChange('topLeft', value);
+    onChange('topRight', value);
+    onChange('bottomLeft', value);
+    onChange('bottomRight', value);
   };
 
   const handleIndividualChange = (corner: string, value: number) => {
@@ -61,7 +64,7 @@ export function BorderRadiusPicker({
             <RotateCcw className="w-3 h-3" />
           </Button>
           <Button
-            variant={isLinked ? "default" : "outline"}
+            variant={isLinked ? "secondary" : "outline"}
             size="sm"
             onClick={() => setIsLinked(!isLinked)}
             className="text-xs px-2 py-1 h-auto"

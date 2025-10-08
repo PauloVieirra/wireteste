@@ -346,6 +346,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       }
       break;
     case 'frame':
+      const hasBackground = element.backgroundColor && element.backgroundColor !== 'transparent';
       component = (
         <Group {...commonProps} ref={shapeRef}>
           <Rect
@@ -353,8 +354,14 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             height={element.height}
             fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : element.backgroundColor || 'transparent'}
             stroke={isSelected ? 'lightblue' : '#e5e7eb'}
-            strokeWidth={2}
-            dash={[10, 5]}
+            strokeWidth={hasBackground ? 0 : 2}
+            dash={hasBackground ? [] : [10, 5]}
+            cornerRadius={[
+              element.borderTopLeftRadius || 0,
+              element.borderTopRightRadius || 0,
+              element.borderBottomRightRadius || 0,
+              element.borderBottomLeftRadius || 0,
+            ]}
           />
         </Group>
       );
