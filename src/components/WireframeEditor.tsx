@@ -992,12 +992,34 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
   const handleElementTransformEnd = useCallback((elementId: string, newX: number, newY: number, newWidth: number, newHeight: number) => {
     const element = currentWireframe?.elements.find(el => el.id === elementId);
-    if (element && element.type === 'frame') {
-        updateElementProperties(elementId, { width: newWidth, height: newHeight });
-    } else {
-        updateElementProperties(elementId, { x: newX, y: newY, width: newWidth, height: newHeight });
+    if (!element) return;
+
+    const minSize = getElementMinimumSize(element.type);
+
+    // Clamp width to canvas width
+    let clampedWidth = Math.min(newWidth, canvasDimensions.width);
+    clampedWidth = Math.max(minSize, clampedWidth);
+    
+    let clampedHeight = Math.max(minSize, newHeight);
+
+    // Clamp position
+    let clampedX = Math.max(0, newX);
+    let clampedY = Math.max(0, newY);
+
+    // Ensure element does not go out of bounds on the right/bottom
+    if (clampedX + clampedWidth > canvasDimensions.width) {
+        clampedX = canvasDimensions.width - clampedWidth;
     }
-  }, [updateElementProperties, currentWireframe]);
+    if (clampedY + clampedHeight > canvasDimensions.height) {
+        clampedY = canvasDimensions.height - clampedHeight;
+    }
+    
+    // Re-clamp position to be at least 0 after adjustment
+    clampedX = Math.max(0, clampedX);
+    clampedY = Math.max(0, clampedY);
+
+    updateElementProperties(elementId, { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight });
+  }, [updateElementProperties, currentWireframe, canvasDimensions]);
 
   const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
 
@@ -1314,7 +1336,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
               onDrop={handleCanvasDrop}
               onPaste={handleCanvasPaste}
             >
-              <div className="flex justify-center w-full" style={{padding: '80px 50px'}}>
+              <div className="flex justify-center w-full" style={{padding: '0px'}}>
                 <div
                   style={{
                     width: canvasDimensions.width * zoom,
