@@ -1,8 +1,6 @@
 # Dependências
 node_modules/
 src/components/icons/
-src/supabase
-src/utils
 # Build
 dist/
 build/
