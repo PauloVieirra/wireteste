@@ -10,11 +10,12 @@ import {
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
+import { Loader2 } from 'lucide-react';
 
 interface FigmaImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (url: string, token: string) => void;
+  onImport: (url: string, token: string) => Promise<void>;
 }
 
 const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
@@ -24,6 +25,7 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
 }) => {
   const [figmaUrl, setFigmaUrl] = useState('');
   const [figmaToken, setFigmaToken] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('figmaToken');
@@ -32,10 +34,15 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
     }
   }, []);
 
-  const handleImportClick = () => {
+  const handleImportClick = async () => {
     if (figmaUrl && figmaToken) {
+      setIsLoading(true);
       localStorage.setItem('figmaToken', figmaToken);
-      onImport(figmaUrl, figmaToken);
+      try {
+        await onImport(figmaUrl, figmaToken);
+      } finally {
+        setIsLoading(false);
+      }
     } else {
       // Handle case where URL or token is missing
     }
@@ -58,6 +65,7 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
               value={figmaUrl}
               onChange={(e) => setFigmaUrl(e.target.value)}
               placeholder="https://www.figma.com/file/..."
+              disabled={isLoading}
             />
           </div>
           <div>
@@ -68,14 +76,18 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
               value={figmaToken}
               onChange={(e) => setFigmaToken(e.target.value)}
               placeholder="Your personal access token"
+              disabled={isLoading}
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>
-          <Button onClick={handleImportClick}>Import</Button>
+          <Button onClick={handleImportClick} disabled={isLoading}>
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Import
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

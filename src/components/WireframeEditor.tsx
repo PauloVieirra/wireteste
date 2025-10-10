@@ -1056,63 +1056,104 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     showToast(`${selectedWireframeIds.length} telas publicadas com sucesso!`, 'success');
   };
 
-  const handleFigmaImport = async (url: string, token: string) => {
-    showToast('Importando do Figma...', 'info');
-    setIsFigmaImportModalOpen(false);
+  const handleFigmaImport = (url: string, token: string): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      showToast('Importando do Figma...', 'info');
+      setIsFigmaImportModalOpen(false);
 
-    const fileKey = url.match(/(?:file|design)\/([^\/]+)/)?.[1];
-    if (!fileKey) {
-      showToast('URL do Figma inválida.', 'error');
-      return;
-    }
-
-    try {
-      const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
-        headers: {
-          'X-Figma-Token': token,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Figma API error: ${response.statusText}`);
+      const fileKey = url.match(/(?:file|design)\/([^\/]+)/)?.[1];
+      if (!fileKey) {
+        showToast('URL do Figma inválida.', 'error');
+        return reject(new Error('URL do Figma inválida.'));
       }
 
-      const data: FigmaFile = await response.json();
-      console.log('Figma data:', data);
+      try {
+        const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`,
+          {
+            headers: {
+              'X-Figma-Token': token,
+            },
+          }
+        );
 
-      const newWireframes = convertFigmaToWireframes(data);
-      console.log('Converted Wireframes:', newWireframes);
+        if (!response.ok) {
+          throw new Error(`Figma API error: ${response.status} ${response.statusText}`);
+        }
 
-      if (newWireframes.length === 0) {
-        showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
-        return;
-      }
+        const data: FigmaFile = await response.json();
 
-      const firstFrame = newWireframes[0];
-      const updatedProject = {
-        ...project,
-        resolution: 'custom' as const,
-        width: firstFrame.width,
-        height: firstFrame.height,
-        wireframes: [...project.wireframes, ...newWireframes],
-        figmaFileKey: fileKey,
-        figmaToken: token,
-      };
+        const imageFills = new Map<string, string>();
+        const nodesWithImageFills = new Set<string>();
 
-      updateAndSaveProject(updatedProject);
-      
-      if (newWireframes.length > 0) {
+        function findImageFills(node: any) {
+          if (node.fills) {
+            for (const fill of node.fills) {
+              if (fill.type === 'IMAGE' && fill.imageRef) {
+                nodesWithImageFills.add(node.id);
+                imageFills.set(fill.imageRef, node.id);
+              }
+            }
+          }
+          if (node.children) {
+            for (const child of node.children) {
+              findImageFills(child);
+            }
+          }
+        }
+
+        findImageFills(data.document);
+
+        let imageUrls: { [key: string]: string } = {};
+        if (imageFills.size > 0) {
+          const imageResponse = await fetch(
+            `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(nodesWithImageFills).join(',')}`,
+            {
+              headers: {
+                'X-Figma-Token': token,
+              },
+            }
+          );
+          if (imageResponse.ok) {
+            const imageData = await imageResponse.json();
+            imageUrls = imageData.images;
+          }
+        }
+
+        const newWireframes = convertFigmaToWireframes(data, imageUrls);
+
+        if (newWireframes.length === 0) {
+          showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
+          return resolve();
+        }
+
+        const firstFrame = newWireframes[0];
+        const updatedProject = {
+          ...project,
+          resolution: 'custom' as const,
+          width: firstFrame.width,
+          height: firstFrame.height,
+          wireframes: [...project.wireframes, ...newWireframes],
+          figmaFileKey: fileKey,
+          figmaToken: token,
+        };
+
+        updateAndSaveProject(updatedProject);
         
-      }
+        if (newWireframes.length > 0) {
+          
+        }
 
-      showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
+        showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
+        resolve();
 
-    } catch (error) {
-      if (error instanceof Error) {
-        showToast(`Erro ao importar do Figma: ${error.message}`, 'error');
+      } catch (error) {
+        if (error instanceof Error) {
+          showToast(`Erro ao importar do Figma: ${error.message}`, 'error');
+        }
+        console.error('Erro ao importar do Figma:', error);
+        reject(error);
       }
-      console.error('Erro ao importar do Figma:', error);
-    }
+    });
   };
 
 const handleImportWireframe = (importedWireframeData: { name: string; svg: string }) => {
@@ -1212,7 +1253,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
   return (
     <div className="h-full flex flex-col relative">
       <div className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
-        <div class="flex items-center gap-2">
+        <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onBack}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Voltar
