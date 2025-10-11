@@ -55,6 +55,7 @@ export interface FigmaNode {
   style?: FigmaTypeStyle;
   // For INSTANCE nodes
   componentId?: string;
+  opacity?: number;
 }
 
 export interface FigmaFile {
@@ -88,11 +89,27 @@ function getIconNameFromFigmaNode(node: FigmaNode): string | null {
   return null;
 }
 
-function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile: FigmaFile, imageUrls?: { [key: string]: string }): any | null {
+function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile: FigmaFile, imageUrls?: { [key: string]: string }, svgUrls?: { [key: string]: string }): any | null {
   console.log('Processing node:', node.id, node.type, node.name);
   if (!node.absoluteBoundingBox) {
     console.warn('Skipping node without absoluteBoundingBox:', node);
     return null;
+  }
+
+  if (svgUrls && svgUrls[node.id]) {
+    const element = {
+      id: node.id,
+      name: node.name,
+      type: 'image',
+      x: node.absoluteBoundingBox.x - parentFrame.absoluteBoundingBox.x,
+      y: node.absoluteBoundingBox.y - parentFrame.absoluteBoundingBox.y,
+      width: node.absoluteBoundingBox.width,
+      height: node.absoluteBoundingBox.height,
+      imageSrc: svgUrls[node.id],
+      opacity: node.opacity ?? 1,
+    };
+    console.log('Created SVG image element:', element);
+    return element;
   }
 
   const solidFill = node.fills?.find(p => p.type === 'SOLID' && p.visible !== false);
@@ -109,6 +126,7 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
     borderWidth: node.strokeWeight || 0,
     borderColor: solidStroke ? figmaColorToCss(solidStroke.color) : 'transparent',
     backgroundColor: solidFill ? figmaColorToCss(solidFill.color) : 'transparent',
+    opacity: node.opacity ?? 1,
   };
 
   if (imageFill && imageUrls && imageUrls[node.id]) {
@@ -162,6 +180,8 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
     case 'VECTOR':
     case 'INSTANCE':
     case 'COMPONENT':
+    case 'GROUP':
+    case 'FRAME':
       const iconName = getIconNameFromFigmaNode(node);
       if (iconName) {
         const iconElement = {
@@ -173,32 +193,31 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
         console.log('Created icon element:', iconElement);
         return iconElement;
       }
-      // If not an icon, treat as a group
+
       const frameElement = {
         ...baseElement,
         type: 'frame',
-        children: node.children?.flatMap(child => convertNodeToElement(child, node, figmaFile, imageUrls)) || [],
       };
-      console.log('Created frame element:', frameElement);
-      return frameElement;
-    case 'GROUP':
-    case 'FRAME':
-      const isInputField = node.name.toLowerCase().includes('input') || node.name.toLowerCase().includes('text field');
-      const frameType = isInputField ? 'frame' : 'frame'; // Could be different in the future
-      const groupElement = {
-        ...baseElement,
-        type: frameType,
-        children: node.children?.flatMap(child => convertNodeToElement(child, node, figmaFile, imageUrls)) || [],
-      };
-      console.log('Created group element:', groupElement);
-      return groupElement;
+
+      const childrenElements = node.children?.flatMap(child => {
+        const convertedElements = convertNodeToElement(child, node, figmaFile, imageUrls, svgUrls);
+        if (convertedElements) {
+            const elements = Array.isArray(convertedElements) ? convertedElements : [convertedElements];
+            if (elements.length > 0) {
+                elements[0].parentId = node.id;
+            }
+        }
+        return convertedElements;
+      }) || [];
+
+      return [frameElement, ...childrenElements];
     default:
       console.warn('Skipping unhandled node type:', node.type, node);
       return null;
   }
 }
 
-export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [key: string]: string }) {
+export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [key: string]: string }, svgUrls?: { [key: string]: string }) {
   console.log("Starting Figma to Wireframe conversion...");
 
   const canvases = figmaFile.document.children?.filter(child => child.type === 'CANVAS');
@@ -218,7 +237,7 @@ export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [ke
   const wireframes = frames.map(frame => {
     const elements = frame.children?.flatMap(child => {
       try {
-        return convertNodeToElement(child, frame, figmaFile, imageUrls);
+        return convertNodeToElement(child, frame, figmaFile, imageUrls, svgUrls);
       } catch (error) {
         console.error('Error converting node:', child, error);
         return null;

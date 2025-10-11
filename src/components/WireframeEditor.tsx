@@ -1104,7 +1104,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
         findImageFills(data.document);
 
         let imageUrls: { [key: string]: string } = {};
-        if (imageFills.size > 0) {
+        if (nodesWithImageFills.size > 0) {
           const imageResponse = await fetch(
             `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(nodesWithImageFills).join(',')}`,
             {
@@ -1119,7 +1119,40 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
           }
         }
 
-        const newWireframes = convertFigmaToWireframes(data, imageUrls);
+        const svgNodeIds = new Set<string>();
+        function findSvgNodes(node: any) {
+          if (['VECTOR', 'COMPONENT', 'INSTANCE'].includes(node.type)) {
+            const isIcon = node.name.toLowerCase().includes('icon');
+            if (!isIcon) {
+              svgNodeIds.add(node.id);
+            }
+          }
+          if (node.children) {
+            for (const child of node.children) {
+              findSvgNodes(child);
+            }
+          }
+        }
+
+        findSvgNodes(data.document);
+
+        let svgUrls: { [key: string]: string } = {};
+        if (svgNodeIds.size > 0) {
+          const svgResponse = await fetch(
+            `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(svgNodeIds).join(',')}&format=svg`,
+            {
+              headers: {
+                'X-Figma-Token': token,
+              },
+            }
+          );
+          if (svgResponse.ok) {
+            const svgData = await svgResponse.json();
+            svgUrls = svgData.images;
+          }
+        }
+
+        const newWireframes = convertFigmaToWireframes(data, imageUrls, svgUrls);
 
         if (newWireframes.length === 0) {
           showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
@@ -1370,14 +1403,14 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
               onMouseLeave={() => (isPointerInsideRef.current = false)}
               onFocus={() => (isPointerInsideRef.current = true)}
               onBlur={() => (isPointerInsideRef.current = false)}
-              style={{ touchAction: 'none', cursor: 'grab' }}
-              className="h-full w-full bg-gray-50 overflow-auto"
+              style={{ touchAction: 'none', cursor: 'grab', paddingTop:'50px', overflow:'auto' }}
+              className="h-full w-full bg-gray-50"
               onDragOver={handleCanvasDragOver}
               onDragLeave={handleCanvasDragLeave}
               onDrop={handleCanvasDrop}
               onPaste={handleCanvasPaste}
             >
-              <div className="flex justify-center w-full" style={{padding: '0px'}}>
+              <div className="flex justify-center w-full">
                 <div
                   style={{
                     width: canvasDimensions.width * zoom,
