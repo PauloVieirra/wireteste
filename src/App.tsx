@@ -10,6 +10,7 @@ import { UserHomePage } from './components/UserHomePage';
 import { AuthenticatedLayout } from './components/AuthenticatedLayout';
 import { ToastProvider, useToast } from './components/ToastProvider';
 import { Button } from './components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { getProjectsByUser, getTestsByUser, getSurveysByUser, getTestSessionsByUser, saveTest as saveTestToDb, saveSurvey, getTestById, getSurveyById, getProjectById, deleteProjectById, deleteTestById, deleteSurveyById, saveTestSession, saveOrUpdateProject } from './utils/supabase/supabaseClient';
@@ -30,83 +31,8 @@ import { useOnlineStatus } from './hooks/useOnlineStatus'; // Importar o hook de
 import { Loader2 } from 'lucide-react'; // Importar Loader2 para o estado de carregamento
 import { useLoading } from './components/GlobalLoading'; // Importar useLoading
 
-// --- TYPE DEFINITIONS ---
-
-// Generic type for display
-export interface DisplayItem {
-  id: string;
-  type: 'wireframe' | 'mapa_calor';
-  name: string;
-  createdAt: string;
-  resolution?: 'mobile' | 'tablet' | 'desktop';
-  wireframe_count?: number;
-  projectId?: string; // Renamed from project_id for consistency
-  testId?: string; // Add testId to link wireframe to its primary usability test
-  hasTestData?: boolean;
-  original: any;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  resolution: 'mobile' | 'tablet' | 'desktop';
-  wireframes: Wireframe[];
-  createdAt: string;
-  updated_at: string;
-  gridConfig?: any;
-  components: any[];
-}
-
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  plan: 'free' | 'pro' | 'enterprise';
-  projectsCreated: number;
-  reportsGenerated: number;
-  role: 'admin' | 'user' | 'tester'; // Added 'tester' role
-}
-
-interface Wireframe {
-  id: string;
-  name: string;
-  elements: any[];
-}
-
-// This is the old test type for hotspots
-interface Test {
-  id: string;
-  projectId: string;
-  name: string;
-  hotspots: any[];
-  flows: any[];
-  sharedWithUserEmail?: string;
-}
-
-// This is for the new tests from the 'tests' table
-interface UsabilityTest {
-    id: string;
-    admin_id: string;
-    name: string;
-    type: 'mapa_calor' | 'eye_tracking' | 'face_tracking';
-    config: any;
-    is_active: boolean;
-    created_at: string;
-    updated_at: string;
-}
-
-
-
-interface TestSession {
-  id: string;
-  testId: string;
-  userName: string;
-  userEmail: string;
-  clicks: any[];
-  startTime: string;
-  endTime?: string;
-  completed: boolean;
-}
+import { ProjectsDataProvider, useProjectsData } from './components/ProjectsDataProvider';
+import type { DisplayItem, Project, User, Wireframe, Test, UsabilityTest, TestSession } from './types';
 
 type View = 'projects' | 'wireframe-editor' | 'test-creator' | 'dashboard' | 'user-test' | 'user-home' | 'session-detail' | 'create-usability-test' | 'profile' | 'signup-tester' | 'manage-test';
 
@@ -122,7 +48,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [selectedSession, setSelectedSession] = useState<TestSession | null>(null);
-  const [selectedItemForDashboard, setSelectedItemForDashboard] = useState<DisplayItem | null>(null);
+  const [selectedProjectIdForDashboard, setSelectedProjectIdForDashboard] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isTesterProfileIncomplete, setIsTesterProfileIncomplete] = useState(false);
   const [unsavedProjectIds, setUnsavedProjectIds] = useState<string[]>([]);
@@ -267,17 +193,41 @@ export default function App() {
   // --- UNIFIED DISPLAY LIST (for admins) ---
   const displayList: DisplayItem[] = useMemo(() => {
     const wireframeItems: DisplayItem[] = projects.map(p => {
-      const associatedTest = usabilityTests.find(t => t.config?.projectId === p.id);
-      const hasTestData = associatedTest ? testSessions.some(s => s.testId === associatedTest.id) : false;
-      console.log(`Project: ${p.name}, Associated Test ID: ${associatedTest?.id}, Test Sessions IDs: ${testSessions.map(s => s.testId)}, Has Test Data: ${hasTestData}`);
+      const associatedTests = usabilityTests.filter(t => t.config?.projectId === p.id);
+      const hasTestData = associatedTests.some(t => testSessions.some(s => s.testId === t.id));
       return {
         id: p.id, type: 'wireframe', name: p.name, createdAt: p.createdAt,
         resolution: p.resolution, wireframe_count: p.wireframes.length,
-        projectId: p.id, testId: associatedTest?.id, hasTestData, original: p,
+        projectId: p.id, tests: associatedTests, hasTestData, original: p,
       };
     });
     return [...wireframeItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [projects, usabilityTests, testSessions]);
+
+  const selectedItemForDashboard = useMemo(() => {
+    if (!selectedProjectIdForDashboard) return null;
+    return displayList.find(item => item.id === selectedProjectIdForDashboard) || null;
+  }, [selectedProjectIdForDashboard, displayList]);
+
+  const projectsWithData = useMemo(() => {
+    return projects.filter(p => {
+      const projectTests = usabilityTests.filter(t => t.config?.projectId === p.id);
+      if (projectTests.length === 0) return false;
+      const testIds = projectTests.map(t => t.id);
+      return testSessions.some(s => testIds.includes(s.testId));
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [projects, usabilityTests, testSessions]);
+
+  const selectedProjectForDashboard = useMemo(() => {
+    return projects.find(p => p.id === selectedProjectIdForDashboard);
+  }, [selectedProjectIdForDashboard, projects]);
+
+  const selectedProjectSessionsForDashboard = useMemo(() => {
+    if (!selectedProjectIdForDashboard) return [];
+    const selectedProjectTests = usabilityTests.filter(t => t.config?.projectId === selectedProjectIdForDashboard);
+    const selectedProjectTestIds = selectedProjectTests.map(t => t.id);
+    return testSessions.filter(s => selectedProjectTestIds.includes(s.testId));
+  }, [selectedProjectIdForDashboard, usabilityTests, testSessions]);
 
 
   // --- EFFECTS ---
@@ -341,16 +291,43 @@ export default function App() {
     };
 
     const checkSession = async () => {
-      showLoading("Verificando sessão..."); // Ativar loading
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await handleUserSession(session.user);
-      } else {
-        // No user, might be signup view
-        if (viewParam === 'signup-tester') {
-          setCurrentView('signup-tester');
+      showLoading("Verificando sessão...");
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Erro ao obter sessão:", error);
+          // Se houver um erro, talvez o token esteja corrompido, então deslogue.
+          await supabase.auth.signOut();
+          setUser(null);
+          navigateTo('projects');
+          return;
         }
-        hideLoading(); // Desativar loading
+
+        if (session?.user) {
+          // Força a atualização da sessão para garantir que o token JWT é válido
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) {
+            console.error('Falha ao atualizar a sessão:', refreshError);
+            // Se a atualização falhar, o usuário precisa logar novamente.
+            await supabase.auth.signOut();
+            setUser(null);
+            navigateTo('projects');
+            return;
+          }
+          await handleUserSession(session.user);
+        } else {
+          if (viewParam === 'signup-tester') {
+            setCurrentView('signup-tester');
+          }
+        }
+      } catch (e) {
+        console.error("Uma exceção ocorreu ao verificar a sessão:", e);
+        // Em caso de exceção, deslogar para evitar um estado inconsistente.
+        await supabase.auth.signOut();
+        setUser(null);
+        navigateTo('projects');
+      } finally {
+        hideLoading();
       }
     };
     checkSession();
@@ -372,6 +349,16 @@ export default function App() {
 
     return () => { authListener.subscription.unsubscribe(); };
   }, [isOnline]); // Adicionado isOnline como dependência para re-executar ao mudar o status da conexão
+
+  useEffect(() => {
+    if (currentView === 'dashboard') {
+        if (projectsWithData.length > 0) {
+            if (!selectedProjectIdForDashboard || !projectsWithData.some(p => p.id === selectedProjectIdForDashboard)) {
+                setSelectedProjectIdForDashboard(projectsWithData[0].id); // Default to most recent
+            }
+        }
+    }
+  }, [currentView, projectsWithData, selectedProjectIdForDashboard]);
 
   useEffect(() => {
     if (user && isOnline && hasUnsavedChanges && !unsavedChangesToastShownRef.current) {
@@ -446,7 +433,7 @@ export default function App() {
       setCurrentView('projects');
     }
     setSelectedProject(null); 
-    setSelectedItemForDashboard(null);
+    setSelectedProjectIdForDashboard(null);
     setActiveTest(null);
     hideLoading(); // Desativar loading antes de navegar
   };
@@ -499,7 +486,7 @@ export default function App() {
           .single();
 
         if (fetchError && fetchError.code !== 'PGRST116') {
-          console.error("Erro ao buscar email para atualizar:", fetchError);
+          console.error("Erro ao buscar email para atualização:", fetchError);
           showToast('Teste finalizado, mas houve erro ao atualizar convite.', 'error');
           // Continuar mesmo com erro no email, mas logar
         }
@@ -691,8 +678,9 @@ export default function App() {
           </AlertDialog>
 
 
+        <div className="w-full flex flex-col">
           {currentView !== 'projects' && currentView !== 'user-home' && currentView !== 'wireframe-editor' && (
-            <header className="border-b border-border bg-card">
+            <header className="border-b border-border bg-card flex-shrink-0">
               <div className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <Button variant="ghost" size="sm" onClick={goBack}>
@@ -704,14 +692,32 @@ export default function App() {
                     {currentView === 'configure-test' && 'Configurar Novo Teste'}
                     {currentView === 'create-test-group' && 'Criar Grupo de Teste'}
                     {currentView === 'user-test' && activeTest?.name}
-                    {currentView === 'dashboard' && `Dashboard: ${selectedItemForDashboard?.name}`}
+                    {currentView === 'dashboard' && 'Dashboard'}
                   </h1>
                 </div>
+                {currentView === 'dashboard' && (
+                  <div className="flex items-center gap-4">
+                    {projectsWithData.length > 0 ? (
+                        <Select onValueChange={(value) => setSelectedProjectIdForDashboard(value)} value={selectedProjectIdForDashboard || ''}>
+                            <SelectTrigger className="w-auto md:w-[280px]">
+                                <SelectValue placeholder="Selecione um projeto" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {projectsWithData.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    ) : (
+                        <span className="text-sm text-muted-foreground">Nenhum projeto com dados de teste.</span>
+                    )}
+                  </div>
+                )}
               </div>
             </header>
           )}
 
-          <div className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             {currentView === 'projects' && (
               <ProjectList
                 items={displayList}
@@ -722,7 +728,7 @@ export default function App() {
                   navigateTo('wireframe-editor'); // Usar navigateTo
                 }}
                 onViewDashboard={(item) => {
-                  setSelectedItemForDashboard(item);
+                  setSelectedProjectIdForDashboard(item.id);
                   navigateTo('dashboard'); // Usar navigateTo
                 }}
                 onStartUserTest={(testId, testType, isDemo) => handleStartUserTest(testId, isDemo || false)}
@@ -750,9 +756,10 @@ export default function App() {
               />
             )}
 
-            {currentView === 'dashboard' && selectedItemForDashboard && (
+            {currentView === 'dashboard' && (
               <Dashboard
-                item={selectedItemForDashboard}
+                selectedProject={selectedProjectForDashboard}
+                selectedProjectSessions={selectedProjectSessionsForDashboard}
               />
             )}
 
@@ -806,6 +813,7 @@ export default function App() {
               </div>
             )} */}
           </div>
+        </div>
         </AuthenticatedLayout>
       </ToastProvider>
   );

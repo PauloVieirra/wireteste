@@ -252,6 +252,21 @@ export const getTestById = async (testId: string) => {
   return data;
 };
 
+export const getTestsByProjectId = async (projectId: string) => {
+  const { data, error } = await supabase
+    .from('tests')
+    .select('*')
+    .eq('config->>projectId', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching tests by project id:', error);
+    return [];
+  }
+
+  return data;
+};
+
 // Definição de tipo para o objeto do projeto, pode ser movido para um arquivo de tipos compartilhado
 interface Project {
   id: string;

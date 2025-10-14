@@ -60,7 +60,10 @@ import {
   Copy,
   Clipboard,
   Edit3,
-  Star // Added Star for default icon rendering
+  Star, // Added Star for default icon rendering
+  Check,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 import Frame from './Frame';
@@ -299,7 +302,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     switch (resolution) {
       case 'mobile': return { width: 375, height: 812 };
       case 'tablet': return { width: 768, height: 1024 };
-      case 'desktop': return { width: 1920, height: 1080 };
+      case 'desktop': return { width: 1440, height: 900 };
       case 'custom': return { width: projectWidth || 1920, height: projectHeight || 1080 };
       default: return { width: 1920, height: 1080 };
     }
@@ -409,6 +412,15 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   useEffect(() => {
     if (selectedElement) {
       setSidebarTab('properties');
+    }
+  }, [selectedElement]);
+
+  useLayoutEffect(() => {
+    const container = canvasContainerRef.current;
+    if (container && scrollPos.current.shouldUpdate) {
+      container.scrollLeft = scrollPos.current.left;
+      container.scrollTop = scrollPos.current.top;
+      scrollPos.current.shouldUpdate = false;
     }
   }, [selectedElement]);
 
@@ -940,6 +952,10 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   }, [project, activeWireframe, onUpdateProject, showToast, stageRef, canvasDimensions, setSelectedElement, currentWireframe]);
 
   const handleElementMouseDown = useCallback((elementId: string) => {
+    const container = canvasContainerRef.current;
+    if (container) {
+      scrollPos.current = { left: container.scrollLeft, top: container.scrollTop, shouldUpdate: true };
+    }
     setSelectedElement(elementId);
   }, []);
 
@@ -996,30 +1012,32 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
     const minSize = getElementMinimumSize(element.type);
 
-    // Clamp width to canvas width
-    let clampedWidth = Math.min(newWidth, canvasDimensions.width);
-    clampedWidth = Math.max(minSize, clampedWidth);
-    
-    let clampedHeight = Math.max(minSize, newHeight);
+    // Garante o tamanho mínimo
+    let finalWidth = Math.max(minSize, newWidth);
+    let finalHeight = Math.max(minSize, newHeight);
 
-    // Clamp position
-    let clampedX = Math.max(0, newX);
-    let clampedY = Math.max(0, newY);
+    // Prende a posição no canto superior esquerdo
+    let finalX = Math.max(0, newX);
+    let finalY = Math.max(0, newY);
 
-    // Ensure element does not go out of bounds on the right/bottom
-    if (clampedX + clampedWidth > canvasDimensions.width) {
-        clampedX = canvasDimensions.width - clampedWidth;
+    // Ajusta as dimensões se elas estourarem o canvas
+    if (finalX + finalWidth > canvasDimensions.width) {
+        finalWidth = canvasDimensions.width - finalX;
     }
-    if (clampedY + clampedHeight > canvasDimensions.height) {
-        clampedY = canvasDimensions.height - clampedHeight;
+    if (finalY + finalHeight > canvasDimensions.height) {
+        finalHeight = canvasDimensions.height - finalY;
     }
-    
-    // Re-clamp position to be at least 0 after adjustment
-    clampedX = Math.max(0, clampedX);
-    clampedY = Math.max(0, clampedY);
 
-    updateElementProperties(elementId, { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight });
-  }, [updateElementProperties, currentWireframe, canvasDimensions]);
+    // Após ajustar as dimensões, verifica novamente o tamanho mínimo.
+    finalWidth = Math.max(minSize, finalWidth);
+    finalHeight = Math.max(minSize, finalHeight);
+
+    // Verificação final da posição para evitar que dimensões negativas a empurrem para fora dos limites.
+    finalX = Math.min(finalX, canvasDimensions.width - finalWidth);
+    finalY = Math.min(finalY, canvasDimensions.height - finalHeight);
+
+    updateElementProperties(elementId, { x: finalX, y: finalY, width: finalWidth, height: finalHeight });
+}, [updateElementProperties, currentWireframe, canvasDimensions]);
 
   const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
 
@@ -1056,137 +1074,136 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     showToast(`${selectedWireframeIds.length} telas publicadas com sucesso!`, 'success');
   };
 
-  const handleFigmaImport = (url: string, token: string): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-      showToast('Importando do Figma...', 'info');
-      setIsFigmaImportModalOpen(false);
+  const handleFetchFigmaData = async (url: string, token: string) => {
+    showToast('Importando do Figma...', 'info');
 
-      const fileKey = url.match(/(?:file|design)\/([^\/]+)/)?.[1];
-      if (!fileKey) {
-        showToast('URL do Figma inválida.', 'error');
-        return reject(new Error('URL do Figma inválida.'));
+    const fileKey = url.match(/(?:file|design)\/([^\/]+)/)?.[1];
+    if (!fileKey) {
+      throw new Error('URL do Figma inválida.');
+    }
+
+    const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`,
+      {
+        headers: {
+          'X-Figma-Token': token,
+        },
       }
+    );
 
-      try {
-        const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`,
-          {
-            headers: {
-              'X-Figma-Token': token,
-            },
-          }
-        );
+    if (!response.ok) {
+      throw new Error(`Figma API error: ${response.status} ${response.statusText}`);
+    }
 
-        if (!response.ok) {
-          throw new Error(`Figma API error: ${response.status} ${response.statusText}`);
-        }
+    const data: FigmaFile = await response.json();
 
-        const data: FigmaFile = await response.json();
+    const imageFills = new Map<string, string>();
+    const nodesWithImageFills = new Set<string>();
 
-        const imageFills = new Map<string, string>();
-        const nodesWithImageFills = new Set<string>();
-
-        function findImageFills(node: any) {
-          if (node.fills) {
-            for (const fill of node.fills) {
-              if (fill.type === 'IMAGE' && fill.imageRef) {
-                nodesWithImageFills.add(node.id);
-                imageFills.set(fill.imageRef, node.id);
-              }
-            }
-          }
-          if (node.children) {
-            for (const child of node.children) {
-              findImageFills(child);
-            }
+    function findImageFills(node: any) {
+      if (node.fills) {
+        for (const fill of node.fills) {
+          if (fill.type === 'IMAGE' && fill.imageRef) {
+            nodesWithImageFills.add(node.id);
+            imageFills.set(fill.imageRef, node.id);
           }
         }
-
-        findImageFills(data.document);
-
-        let imageUrls: { [key: string]: string } = {};
-        if (nodesWithImageFills.size > 0) {
-          const imageResponse = await fetch(
-            `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(nodesWithImageFills).join(',')}`,
-            {
-              headers: {
-                'X-Figma-Token': token,
-              },
-            }
-          );
-          if (imageResponse.ok) {
-            const imageData = await imageResponse.json();
-            imageUrls = imageData.images;
-          }
-        }
-
-        const svgNodeIds = new Set<string>();
-        function findSvgNodes(node: any) {
-          if (['VECTOR', 'COMPONENT', 'INSTANCE'].includes(node.type)) {
-            const isIcon = node.name.toLowerCase().includes('icon');
-            if (!isIcon) {
-              svgNodeIds.add(node.id);
-            }
-          }
-          if (node.children) {
-            for (const child of node.children) {
-              findSvgNodes(child);
-            }
-          }
-        }
-
-        findSvgNodes(data.document);
-
-        let svgUrls: { [key: string]: string } = {};
-        if (svgNodeIds.size > 0) {
-          const svgResponse = await fetch(
-            `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(svgNodeIds).join(',')}&format=svg`,
-            {
-              headers: {
-                'X-Figma-Token': token,
-              },
-            }
-          );
-          if (svgResponse.ok) {
-            const svgData = await svgResponse.json();
-            svgUrls = svgData.images;
-          }
-        }
-
-        const newWireframes = convertFigmaToWireframes(data, imageUrls, svgUrls);
-
-        if (newWireframes.length === 0) {
-          showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
-          return resolve();
-        }
-
-        const firstFrame = newWireframes[0];
-        const updatedProject = {
-          ...project,
-          resolution: 'custom' as const,
-          width: firstFrame.width,
-          height: firstFrame.height,
-          wireframes: [...project.wireframes, ...newWireframes],
-          figmaFileKey: fileKey,
-          figmaToken: token,
-        };
-
-        updateAndSaveProject(updatedProject);
-        
-        if (newWireframes.length > 0) {
-          
-        }
-
-        showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
-        resolve();
-
-      } catch (error) {
-        if (error instanceof Error) {
-          showToast(`Erro ao importar do Figma: ${error.message}`, 'error');
-        }
-        console.error('Erro ao importar do Figma:', error);
-        reject(error);
       }
+      if (node.children) {
+        for (const child of node.children) {
+          findImageFills(child);
+        }
+      }
+    }
+
+    findImageFills(data.document);
+
+    let imageUrls: { [key: string]: string } = {};
+    if (nodesWithImageFills.size > 0) {
+      const imageResponse = await fetch(
+        `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(nodesWithImageFills).join(',')}`,
+        {
+          headers: {
+            'X-Figma-Token': token,
+          },
+        }
+      );
+      if (imageResponse.ok) {
+        const imageData = await imageResponse.json();
+        imageUrls = imageData.images;
+      }
+    }
+
+    const svgNodeIds = new Set<string>();
+    function findSvgNodes(node: any) {
+      if (['VECTOR', 'COMPONENT', 'INSTANCE'].includes(node.type)) {
+        const isIcon = node.name.toLowerCase().includes('icon');
+        if (!isIcon) {
+          svgNodeIds.add(node.id);
+        }
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          findSvgNodes(child);
+        }
+      }
+    }
+
+    findSvgNodes(data.document);
+
+    let svgUrls: { [key: string]: string } = {};
+    if (svgNodeIds.size > 0) {
+      const svgResponse = await fetch(
+        `https://api.figma.com/v1/images/${fileKey}?ids=${Array.from(svgNodeIds).join(',')}&format=svg`,
+        {
+          headers: {
+            'X-Figma-Token': token,
+          },
+        }
+      );
+      if (svgResponse.ok) {
+        const svgData = await svgResponse.json();
+        svgUrls = svgData.images;
+      }
+    }
+
+    return convertFigmaToWireframes(data, imageUrls, svgUrls);
+  };
+
+  const handleConfirmFigmaImport = (importData: any) => {
+    const { wireframes: newWireframes, links: newLinks } = importData;
+
+    if (newWireframes.length === 0) {
+      showToast('Nenhuma tela (frame) encontrada no arquivo Figma.', 'warning');
+      return;
+    }
+
+    const wireframesWithNavigation = newWireframes.map((wireframe: any) => {
+        const elementsWithNavigation = wireframe.elements.map((element: any) => {
+            const link = newLinks.find((l: any) => l.sourceId === element.id);
+            if (link) {
+                return { ...element, navigationTarget: link.destinationId };
+            }
+            return element;
+        });
+        return { ...wireframe, elements: elementsWithNavigation };
     });
+
+    const firstFrame = wireframesWithNavigation[0];
+    const updatedProject = {
+      ...project,
+      resolution: 'custom' as const,
+      width: firstFrame.width,
+      height: firstFrame.height,
+      wireframes: [...project.wireframes, ...wireframesWithNavigation],
+    };
+
+    updateAndSaveProject(updatedProject);
+    
+    if (newWireframes.length > 0) {
+      
+    }
+
+    showToast(`${newWireframes.length} tela(s) importada(s) com sucesso!`, 'success');
   };
 
 const handleImportWireframe = (importedWireframeData: { name: string; svg: string }) => {
@@ -1345,28 +1362,29 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
           <Button variant="outline" size="sm" onClick={() => setIsPublishModalOpen(true)}>
             Publicar
           </Button>
-          <div className="relative flex items-center gap-2">
-            <Button
-              className={`relative flex items-center gap-2 ${saveStatus === 'Atualizar' ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-white'}`}
-              size="sm"
-              onClick={handleSaveProject}
-              disabled={saveStatus === "Salvando..." || saveStatus === "Verificando..."}
-            >
-              <Save className="w-4 h-4" />
-
-              {saveStatus === "Salvando..." || saveStatus === "Verificando..."
-                ? saveStatus
-                : saveStatus === "Atualizar"
-                ? "Atualizar"
-                : "Atualizado"}
-
-              <Signal unsavedWarning={saveStatus === 'Atualizar'} />
-
-            </Button>
-
-              
-              <span className="text-sm text-muted-foreground min-w-[100px]">{saveStatus}</span>
-         
+          <div className="relative flex items-center">
+            {saveStatus !== 'Atualizado' && (
+              <Button
+                size="sm"
+                onClick={handleSaveProject}
+                disabled={saveStatus === 'Salvando...'}
+                className={`flex items-center gap-2 transition-all ${
+                  saveStatus === 'Atualizar'
+                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                    : saveStatus === 'Erro ao salvar'
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-gray-800 hover:bg-gray-700 text-white'
+                }`}
+              >
+                {saveStatus === 'Salvando...' && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saveStatus === 'Atualizar' && <Save className="w-4 h-4" />}
+                {saveStatus === 'Erro ao salvar' && <AlertCircle className="w-4 h-4" />}
+                
+                {saveStatus === 'Atualizar' ? 'Salvar' :
+                saveStatus === 'Erro ao salvar' ? 'Erro' :
+                saveStatus}
+              </Button>
+            )}
           </div>
           <Button variant="outline" size="sm" onClick={() => setIsLibraryModalOpen(true)}>
             Biblioteca
@@ -1443,6 +1461,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                       getFontFamilyCSS={getFontFamilyCSS}
                       getElementMinimumSize={getElementMinimumSize}
                       onCanvasMouseDown={handleCanvasMouseDown}
+                      isReadOnly={false}
                     />
                     <GridOverlay gridConfig={gridConfig} width={canvasDimensions.width} />
                   </div>
@@ -1550,30 +1569,28 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         </>
                       )}
 
-                      {selectedElementData.type === 'button' && (
-                        <div>
-                          <Label className="text-sm font-medium flex items-center gap-2">
-                            <ArrowRight className="w-4 h-4" />
-                            Navegação
-                          </Label>
-                          <Select value={selectedElementData.navigationTarget || ''} onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}>
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Selecione a tela de destino" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Nenhuma navegação</SelectItem>
-                              {project.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
-                                  <SelectItem key={wireframe.id} value={wireframe.id}>
-                                    {wireframe.name}
-                                  </SelectItem>
-                                ))}
-                              <SelectItem key="__FINISH_TEST__" value="__FINISH_TEST__">
-                                Finalizar Teste
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
+                      <div>
+                        <Label className="text-sm font-medium flex items-center gap-2">
+                          <ArrowRight className="w-4 h-4" />
+                          Navegação
+                        </Label>
+                        <Select value={selectedElementData.navigationTarget || ''} onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}>
+                          <SelectTrigger className="mt-2">
+                            <SelectValue placeholder="Selecione a tela de destino" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Nenhuma navegação</SelectItem>
+                            {project.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
+                                <SelectItem key={wireframe.id} value={wireframe.id}>
+                                  {wireframe.name}
+                                </SelectItem>
+                              ))}
+                            <SelectItem key="__FINISH_TEST__" value="__FINISH_TEST__">
+                              Finalizar Teste
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
                       {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
                         <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
@@ -1651,7 +1668,12 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
 
       <LibraryModal isOpen={isLibraryModalOpen} onClose={() => setIsLibraryModalOpen(false)} onImportWireframe={handleImportWireframe} />
 
-            <FigmaImportModal isOpen={isFigmaImportModalOpen} onClose={() => setIsFigmaImportModalOpen(false)} onImport={handleFigmaImport} />
+      <FigmaImportModal
+        isOpen={isFigmaImportModalOpen}
+        onClose={() => setIsFigmaImportModalOpen(false)}
+        fetchFigmaData={handleFetchFigmaData}
+        onImport={handleConfirmFigmaImport}
+      />
       <PublishModal isOpen={isPublishModalOpen} onClose={() => setIsPublishModalOpen(false)} wireframes={project.wireframes} onPublish={handlePublish} />
     </div>
   );

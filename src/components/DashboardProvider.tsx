@@ -142,7 +142,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ itemId, it
             const cacheKey = `dashboard-${itemType}-${itemId}-${user.id}`;
             await localforage.removeItem(cacheKey);
           }
-          // fetchData(); // REMOVER ESTA LINHA para evitar loop infinito em caso de dados vazios
+          fetchData();
         }
       )
       .subscribe();

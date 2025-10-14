@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Plus, Edit3, Play, BarChart3, Monitor, Tablet, Smartphone, MoreVertical, Share2, Trash2 } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from './ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { useToast } from './ToastProvider';
-import { Badge } from './ui/badge'; // Import Badge
-import type { DisplayItem } from '../App'; // Import DisplayItem type
+import { Badge } from './ui/badge';
+import type { DisplayItem, UsabilityTest } from '../App';
+import { TestSelectionModal } from './TestSelectionModal';
 
 interface User {
   id: string;
@@ -18,16 +19,15 @@ interface User {
 }
 
 interface ProjectListProps {
-  items: DisplayItem[]; // Use the unified list
+  items: DisplayItem[];
   user: User;
   onOpenNewProjectModal: () => void;
-  onEditProject: (project: any) => void; // Use any for now
-  onCreateTest: (project: any) => void; // Re-adicionado
-  onConfigureTest: (project: any) => void; // Re-adicionado
+  onEditProject: (project: any) => void;
+  onCreateTest: (project: any) => void;
+  onConfigureTest: (project: any) => void;
   onViewDashboard: (item: DisplayItem) => void;
-  onStartUserTest: (testId: string, testType: DisplayItem['type'], isDemo?: boolean) => void;
+  onStartUserTest: (testId: string, testType: UsabilityTest['type'], isDemo?: boolean) => void;
   onDeleteProject?: (itemId: string, itemType: DisplayItem['type']) => void;
-  // onManageTest: (project: any) => void; // Removido
 }
 
 const typeDisplay: { [key: string]: { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } } = {
@@ -40,21 +40,24 @@ export function ProjectList({
   user,
   onOpenNewProjectModal,
   onEditProject, 
-  onCreateTest, // Re-adicionado
-  onConfigureTest, // Re-adicionado
+  onCreateTest, 
+  onConfigureTest, 
   onViewDashboard,
   onStartUserTest,
   onDeleteProject,
-  // onManageTest // Removido
 }: ProjectListProps) {
   const { showToast } = useToast();
+  const [isTestSelectionModalOpen, setIsTestSelectionModalOpen] = useState(false);
+  const [selectedItemForTest, setSelectedItemForTest] = useState<DisplayItem | null>(null);
 
-  const handleShare = (testId: string | undefined) => {
-    if (!testId) {
+  const handleShare = (tests: UsabilityTest[]) => {
+    if (tests.length === 0) {
       showToast('Nenhum teste associado a este projeto para compartilhar.', 'error');
       return;
     }
-    const shareUrl = `${window.location.origin}/?view=user-test&testId=${testId}`;
+    // For simplicity, sharing the link of the first test.
+    // A better approach might be to let the user choose which test to share.
+    const shareUrl = `${window.location.origin}/?view=user-test&testId=${tests[0].id}`;
     navigator.clipboard.writeText(shareUrl).then(() => {
       showToast('Link para o teste copiado para a área de transferência!', 'success');
     }).catch(() => {
@@ -87,7 +90,14 @@ export function ProjectList({
     }
   };
 
-
+  const handleTestButtonClick = (item: DisplayItem) => {
+    if (item.tests.length === 1) {
+      onStartUserTest(item.tests[0].id, item.tests[0].type, true);
+    } else {
+      setSelectedItemForTest(item);
+      setIsTestSelectionModalOpen(true);
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -183,7 +193,7 @@ export function ProjectList({
                 {item.type === 'wireframe' && <div>Wireframes: {item.wireframe_count}</div>}
                 
                </div>
-                 <Button variant="outline"   onClick={() => handleShare(item.testId)}  disabled={!item.testId}>
+                 <Button variant="outline" onClick={() => handleShare(item.tests)} disabled={item.tests.length === 0}>
                         <Share2 className="w-4 h-4 mr-2" />
                         Compartilhar
                  </Button>
@@ -208,11 +218,10 @@ export function ProjectList({
                       Configurar Testes
                     </Button>
                     <div className="flex gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => onStartUserTest(item.testId, 'mapa_calor', true)} className="w-full justify-start" disabled={!item.testId}>
+                      <Button variant="secondary" size="sm" onClick={() => handleTestButtonClick(item)} className="w-full justify-start" disabled={item.tests.length === 0}>
                         <Play className="w-4 h-4 mr-2" />
                         Testar
                       </Button>
-                     
                     </div>
                   </>
                 )}
@@ -234,6 +243,17 @@ export function ProjectList({
           </Card>
         ))}
       </div>
+      {selectedItemForTest && (
+        <TestSelectionModal
+          isOpen={isTestSelectionModalOpen}
+          onClose={() => setIsTestSelectionModalOpen(false)}
+          tests={selectedItemForTest.tests}
+          onSelectTest={(testId, testType) => {
+            onStartUserTest(testId, testType, true);
+            setIsTestSelectionModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

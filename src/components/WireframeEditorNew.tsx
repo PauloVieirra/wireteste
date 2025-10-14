@@ -494,7 +494,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                 <span className="text-sm text-muted-foreground">
                   {currentWireframe?.name || 'Selecione uma tela'}
                 </span>
-                <Button size="sm">
+                <Button size="sm ">
                   <Save className="w-4 h-4 mr-2" />
                   Salvar
                 </Button>

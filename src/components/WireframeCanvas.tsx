@@ -83,10 +83,11 @@ interface WireframeCanvasProps {
   getElementMinimumSize: (elementType: string) => number;
   onCanvasMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onElementTransformEnd: (id: string, x: number, y: number, width: number, height: number) => void;
+  isReadOnly?: boolean;
 }
 
 // --- SINGLE ELEMENT COMPONENT ---
-const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, wireframe, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions, draggable: draggableProp = true }) => {
+const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, wireframe, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions, draggable: draggableProp = true, isReadOnly = false }) => {
   const shapeRef = useRef<Konva.Node>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -140,9 +141,15 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
     y: element.y,
     width: element.width,
     height: element.height,
-    draggable: draggableProp,
-    onClick: () => onSelect(element.id),
-    onTap: () => onSelect(element.id),
+    draggable: !isReadOnly && draggableProp,
+    onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      e.evt.preventDefault();
+      onSelect(element.id);
+    },
+    onTap: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      e.evt.preventDefault();
+      onSelect(element.id);
+    },
     onDragEnd: (e) => {
       e.cancelBubble = true;
       const absolutePos = e.target.getAbsolutePosition();
@@ -383,7 +390,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
   return (
     <Fragment>
       {component}
-      {isSelected && (
+      {isSelected && !isReadOnly && (
                   <Transformer
                     ref={trRef}
                     keepRatio={element.type === 'circle'}
@@ -391,12 +398,51 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                     ignoreStroke={true}
                     centeredScaling={false}
                     boundBoxFunc={(oldBox, newBox) => {
-                      const minSize = getElementMinimumSize(element.type);
-                      if (Math.abs(newBox.width) < minSize || Math.abs(newBox.height) < minSize) {
-                        return oldBox;
-                      }
-                      return newBox;
-                    }}          onTransformEnd={(e) => {
+                        const minSize = getElementMinimumSize(element.type);
+                        if (Math.abs(newBox.width) < minSize || Math.abs(newBox.height) < minSize) {
+                          return oldBox;
+                        }
+                      
+                        const node = shapeRef.current;
+                        if (!node) return newBox;
+                      
+                        // For top-level elements, x and y are canvas coordinates.
+                        let x = newBox.x;
+                        let y = newBox.y;
+                        let width = newBox.width;
+                        let height = newBox.height;
+                      
+                        // Clamp position
+                        if (x < 0) {
+                          width += x;
+                          x = 0;
+                        }
+                        if (y < 0) {
+                          height += y;
+                          y = 0;
+                        }
+                      
+                        // Clamp dimensions
+                        if (x + width > canvasDimensions.width) {
+                          width = canvasDimensions.width - x;
+                        }
+                        if (y + height > canvasDimensions.height) {
+                          height = canvasDimensions.height - y;
+                        }
+                      
+                        // After clamping, check min size again
+                        if (width < minSize || height < minSize) {
+                          return oldBox;
+                        }
+                      
+                        return {
+                          ...newBox,
+                          x,
+                          y,
+                          width,
+                          height,
+                        };
+                      }}          onTransformEnd={(e) => {
             const node = shapeRef.current;
             if (!node) return;
 
@@ -417,10 +463,12 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
               newWidth = newHeight = Math.max(newWidth, newHeight);
             }
             
+            const absPos = node.getAbsolutePosition();
+
             onElementTransformEnd(
               element.id,
-              node.x(),
-              node.y(),
+              absPos.x,
+              absPos.y,
               newWidth,
               newHeight
             );
@@ -505,6 +553,7 @@ export const WireframeCanvas = React.forwardRef(({
   getFontFamilyCSS = () => 'inter',
   getElementMinimumSize = () => 10,
   onCanvasMouseDown,
+  isReadOnly = false,
 }, ref) => {
 
   useEffect(() => {
@@ -530,6 +579,7 @@ export const WireframeCanvas = React.forwardRef(({
       onElementDragEnd={onElementDragEnd}
       onElementTransformEnd={onElementTransformEnd}
       canvasDimensions={canvasDimensions}
+      isReadOnly={isReadOnly}
     />
   );
 
@@ -551,7 +601,7 @@ export const WireframeCanvas = React.forwardRef(({
               if (element.type === 'frame') {
                 const children = wireframe.elements.filter(el => el.parentId === element.id);
                 return (
-                  <Group key={element.id} x={element.x} y={element.y} draggable onDragEnd={(e) => {
+                  <Group key={element.id} x={element.x} y={element.y} draggable={!isReadOnly} onDragEnd={(e) => {
                     if (e.target === e.currentTarget) { // Only fire if the group itself was dragged
                       onElementDragEnd(element.id, e.currentTarget.x(), e.currentTarget.y());
                     }
@@ -578,6 +628,7 @@ export const WireframeCanvas = React.forwardRef(({
                       onElementTransformEnd={onElementTransformEnd}
                       canvasDimensions={canvasDimensions}
                       draggable={false}
+                      isReadOnly={isReadOnly}
                     />
                     {children.map(child => renderElement(child))}
                   </Group>

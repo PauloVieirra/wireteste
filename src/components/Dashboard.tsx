@@ -1,48 +1,40 @@
 import React from 'react';
-import { DisplayItem } from '../App';
-import { DashboardProvider } from './DashboardProvider';
 import { WireframeHeatmapDashboard } from './WireframeHeatmapDashboard';
-import { SurveyDashboard } from './SurveyDashboard';
+import type { Project, TestSession } from '../types';
 
 interface DashboardProps {
-  item: DisplayItem;
+  selectedProject: Project | null | undefined;
+  selectedProjectSessions: TestSession[];
+  // The parent component will now handle loading and data availability
 }
 
-export function Dashboard({ item }: DashboardProps) {
-  const renderSpecificDashboard = () => {
-    switch (item.type) {
-      case 'wireframe':
-        if (!item.testId) {
-          return <div className="p-6 text-center">Nenhum teste de usabilidade associado a este wireframe ainda.</div>;
-        }
-        return (
-          <DashboardProvider itemId={item.testId} itemType={'mapa_calor'}>
-            <WireframeHeatmapDashboard itemId={item.testId} itemType={'mapa_calor'} />
-          </DashboardProvider>
-        );
-      case 'mapa_calor':
-        if (!item.projectId) {
-          return <div className="p-6 text-center">Nenhum projeto associado a este teste de mapa de calor.</div>;
-        }
-        return (
-          <DashboardProvider itemId={item.id} itemType={item.type}>
-            <WireframeHeatmapDashboard itemId={item.id} itemType={item.type} />
-          </DashboardProvider>
-        );
-      case 'pesquisa':
-        return (
-          <DashboardProvider itemId={item.id} itemType={item.type}>
-            <SurveyDashboard itemId={item.id} />
-          </DashboardProvider>
-        );
-      default:
-        return <div className="p-6 text-center">Tipo de projeto desconhecido para dashboard: {item.type}</div>;
-    }
-  };
+export function Dashboard({ selectedProject, selectedProjectSessions }: DashboardProps) {
+  // The main container for the dashboard content
+  const containerClasses = "p-6 h-full";
+
+  if (!selectedProject) {
+    return (
+      <div className={`${containerClasses} flex items-center justify-center`}>
+        <div className="text-center text-muted-foreground">
+          Selecione um projeto para visualizar o dashboard.
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedProjectSessions.length === 0) {
+    return (
+      <div className={`${containerClasses} flex items-center justify-center`}>
+        <div className="text-center text-muted-foreground">
+          Nenhuma sessão de teste encontrada para o projeto "{selectedProject.name}".
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="dashboard-container">
-      {renderSpecificDashboard()}
+    <div className={containerClasses}>
+      <WireframeHeatmapDashboard project={selectedProject} sessions={selectedProjectSessions} />
     </div>
   );
 }

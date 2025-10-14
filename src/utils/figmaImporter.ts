@@ -40,22 +40,37 @@ interface FigmaRectangle {
   height: number;
 }
 
+interface FigmaInteractionAction {
+    type: 'NODE' | 'BACK' | 'URL';
+    destinationId?: string;
+    navigation: 'NAVIGATE' | 'SWAP' | 'OVERLAY';
+    transition?: any;
+    url?: string;
+}
+
+interface FigmaInteraction {
+    trigger: {
+        type: 'ON_CLICK' | 'ON_DRAG' | 'MOUSE_ENTER' | 'MOUSE_LEAVE' | 'MOUSE_UP' | 'MOUSE_DOWN' | 'AFTER_TIMEOUT';
+    };
+    actions: FigmaInteractionAction[];
+}
+
 export interface FigmaNode {
-  id: string;
-  name: string;
-  type: 'DOCUMENT' | 'CANVAS' | 'FRAME' | 'GROUP' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'VECTOR' | 'COMPONENT' | 'INSTANCE' | 'LINE';
-  absoluteBoundingBox: FigmaRectangle;
-  children?: FigmaNode[];
-  fills?: FigmaPaint[];
-  strokes?: FigmaPaint[];
-  strokeWeight?: number;
-  cornerRadius?: number; // For all corners if uniform
-  rectangleCornerRadii?: [number, number, number, number]; // TL, TR, BR, BL
-  characters?: string;
-  style?: FigmaTypeStyle;
-  // For INSTANCE nodes
-  componentId?: string;
-  opacity?: number;
+    id: string;
+    name: string;
+    type: 'DOCUMENT' | 'CANVAS' | 'FRAME' | 'GROUP' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'VECTOR' | 'COMPONENT' | 'INSTANCE' | 'LINE';
+    absoluteBoundingBox: FigmaRectangle;
+    children?: FigmaNode[];
+    fills?: FigmaPaint[];
+    strokes?: FigmaPaint[];
+    strokeWeight?: number;
+    cornerRadius?: number;
+    rectangleCornerRadii?: [number, number, number, number];
+    characters?: string;
+    style?: FigmaTypeStyle;
+    componentId?: string;
+    opacity?: number;
+    interactions?: FigmaInteraction[];
 }
 
 export interface FigmaFile {
@@ -89,27 +104,41 @@ function getIconNameFromFigmaNode(node: FigmaNode): string | null {
   return null;
 }
 
-function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile: FigmaFile, imageUrls?: { [key: string]: string }, svgUrls?: { [key: string]: string }): any | null {
+function convertNodeToElement(
+  node: FigmaNode,
+  parentFrame: FigmaNode,
+  figmaFile: FigmaFile,
+  imageUrls?: { [key: string]: string },
+  svgUrls?: { [key: string]: string },
+  inheritedProps?: { destinationId?: string },
+  fontCollector?: Set<string>
+): any | null {
   console.log('Processing node:', node.id, node.type, node.name);
   if (!node.absoluteBoundingBox) {
     console.warn('Skipping node without absoluteBoundingBox:', node);
     return null;
   }
 
-  if (svgUrls && svgUrls[node.id]) {
-    const element = {
-      id: node.id,
-      name: node.name,
-      type: 'image',
-      x: node.absoluteBoundingBox.x - parentFrame.absoluteBoundingBox.x,
-      y: node.absoluteBoundingBox.y - parentFrame.absoluteBoundingBox.y,
-      width: node.absoluteBoundingBox.width,
-      height: node.absoluteBoundingBox.height,
-      imageSrc: svgUrls[node.id],
-      opacity: node.opacity ?? 1,
-    };
-    console.log('Created SVG image element:', element);
-    return element;
+  if (node.interactions && node.interactions.length > 0) {
+    console.log(`Interactions array for node '${node.name}' (${node.id}):`, JSON.stringify(node.interactions, null, 2));
+  }
+
+  const clickInteraction = node.interactions?.find(
+    (interaction) =>
+      interaction &&
+      interaction.trigger &&
+      interaction.trigger.type === 'ON_CLICK' &&
+      interaction.actions &&
+      interaction.actions.length > 0 &&
+      interaction.actions[0].type === 'NODE' &&
+      interaction.actions[0].navigation === 'NAVIGATE'
+  );
+
+  // Prioritize the node's own interaction, but fall back to the one inherited from a parent group.
+  const destinationId = clickInteraction?.actions[0].destinationId || inheritedProps?.destinationId;
+
+  if (clickInteraction) {
+    console.log(`Interaction found on node '${node.name}' (${node.id}), destination: ${destinationId}`);
   }
 
   const solidFill = node.fills?.find(p => p.type === 'SOLID' && p.visible !== false);
@@ -127,7 +156,18 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
     borderColor: solidStroke ? figmaColorToCss(solidStroke.color) : 'transparent',
     backgroundColor: solidFill ? figmaColorToCss(solidFill.color) : 'transparent',
     opacity: node.opacity ?? 1,
+    destinationId: destinationId, // Use the correctly resolved destinationId
   };
+
+  if (svgUrls && svgUrls[node.id]) {
+    const element = {
+      ...baseElement,
+      type: 'image',
+      imageSrc: svgUrls[node.id],
+    };
+    console.log('Created SVG image element:', element);
+    return element;
+  }
 
   if (imageFill && imageUrls && imageUrls[node.id]) {
     const element = {
@@ -175,6 +215,9 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
         textDecoration: node.style?.textDecoration === 'UNDERLINE' ? 'underline' : node.style?.textDecoration === 'STRIKETHROUGH' ? 'line-through' : 'none',
         textAutoResize: node.style?.textAutoResize,
       };
+      if (fontCollector && textElement.fontFamily) {
+        fontCollector.add(textElement.fontFamily);
+      }
       console.log('Created text element:', textElement);
       return textElement;
     case 'VECTOR':
@@ -200,7 +243,8 @@ function convertNodeToElement(node: FigmaNode, parentFrame: FigmaNode, figmaFile
       };
 
       const childrenElements = node.children?.flatMap(child => {
-        const convertedElements = convertNodeToElement(child, node, figmaFile, imageUrls, svgUrls);
+        // Pass the current node as the parentFrame for correct relative coordinate calculation, and pass down the current element's destinationId.
+        const convertedElements = convertNodeToElement(child, node, figmaFile, imageUrls, svgUrls, { destinationId: baseElement.destinationId }, fontCollector);
         if (convertedElements) {
             const elements = Array.isArray(convertedElements) ? convertedElements : [convertedElements];
             if (elements.length > 0) {
@@ -234,23 +278,39 @@ export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [ke
 
   console.log(`Found ${frames.length} frames to import.`);
 
+  const links: { sourceId: string; destinationId: string }[] = [];
+  const fontFamilies = new Set<string>();
+
   const wireframes = frames.map(frame => {
     const elements = frame.children?.flatMap(child => {
       try {
-        return convertNodeToElement(child, frame, figmaFile, imageUrls, svgUrls);
+        return convertNodeToElement(child, frame, figmaFile, imageUrls, svgUrls, undefined, fontFamilies);
       } catch (error) {
         console.error('Error converting node:', child, error);
         return null;
       }
     }).filter(Boolean) || [];
+
+    const flattenedElements = elements.flat(Infinity);
+
+    flattenedElements.forEach(element => {
+        if (element.destinationId) {
+            links.push({
+                sourceId: element.id,
+                destinationId: element.destinationId,
+            });
+        }
+    });
+
     return {
       id: frame.id,
       name: frame.name,
       width: frame.absoluteBoundingBox.width,
       height: frame.absoluteBoundingBox.height,
-      elements: elements.flat(Infinity),
+      elements: flattenedElements,
     };
   });
 
-  return wireframes;
+  console.log("Used font families:", Array.from(fontFamilies));
+  return { wireframes, links, fontFamilies: Array.from(fontFamilies) };
 }

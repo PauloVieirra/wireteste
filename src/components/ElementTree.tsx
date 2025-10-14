@@ -512,26 +512,26 @@ export function ElementTree({
 
   return (
     <>
-      <div className="h-full">
-        <div className="p-3 border-b border-border">
+      <div className="h-full flex flex-col">
+        <div className="p-3 border-b border-border shrink-0">
           <h3 className="font-medium text-sm">Telas e Elementos</h3>
           <p className="text-xs text-muted-foreground mt-1">
             Gerencie suas telas e a hierarquia dos elementos.
           </p>
         </div>
-        
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-2">
-            {wireframes.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Folder className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">Nenhuma tela criada</p>
-                <p className="text-xs">Crie uma nova tela para começar</p>
-              </div>
-            ) : (
-              wireframes.map(renderWireframe)
-            )}
-          </div>
+
+        <div className="flex-1 overflow-hidden">
+          {wireframes.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Folder className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">Nenhuma tela criada</p>
+              <p className="text-xs">Crie uma nova tela para começar</p>
+            </div>
+          ) : (
+            <div className="overflow-y-auto h-full p-2">
+              {wireframes.map(renderWireframe)}
+            </div>
+          )}
         </div>
       </div>
       <AlertDialog open={!!wireframeToDelete} onOpenChange={() => setWireframeToDelete(null)}>

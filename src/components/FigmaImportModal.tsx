@@ -15,17 +15,21 @@ import { Loader2 } from 'lucide-react';
 interface FigmaImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (url: string, token: string) => Promise<void>;
+  onImport: (importData: any) => Promise<void>;
+  fetchFigmaData: (url: string, token: string) => Promise<any>;
 }
 
 const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
   isOpen,
   onClose,
   onImport,
+  fetchFigmaData,
 }) => {
   const [figmaUrl, setFigmaUrl] = useState('');
   const [figmaToken, setFigmaToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [retrievedFonts, setRetrievedFonts] = useState<string[] | null>(null);
+  const [importData, setImportData] = useState<any | null>(null);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('figmaToken');
@@ -34,60 +38,97 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
     }
   }, []);
 
-  const handleImportClick = async () => {
+  const handleFetchClick = async () => {
     if (figmaUrl && figmaToken) {
       setIsLoading(true);
       localStorage.setItem('figmaToken', figmaToken);
       try {
-        await onImport(figmaUrl, figmaToken);
+        const data = await fetchFigmaData(figmaUrl, figmaToken);
+        setImportData(data);
+        setRetrievedFonts(data.fontFamilies);
       } finally {
         setIsLoading(false);
       }
-    } else {
-      // Handle case where URL or token is missing
     }
   };
 
+  const handleConfirmImport = async () => {
+    if (importData) {
+      setIsLoading(true);
+      try {
+        await onImport(importData);
+      } finally {
+        setIsLoading(false);
+        onClose();
+      }
+    }
+  };
+
+  const handleCancel = () => {
+    setRetrievedFonts(null);
+    setImportData(null);
+    onClose();
+  }
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleCancel}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Import from Figma</DialogTitle>
           <DialogDescription>
-            To import your design, please provide a link to your Figma file and a personal access token. You can generate a token from your Figma account settings under the "Personal access tokens" section.
+            {retrievedFonts 
+              ? 'The following font families were found in your Figma file. Please ensure you have them installed or available in your project.'
+              : 'To import your design, please provide a link to your Figma file and a personal access token. You can generate a token from your Figma account settings under the "Personal access tokens" section.'
+            }
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        {retrievedFonts ? (
           <div>
-            <Label htmlFor="figma-url">Figma File URL</Label>
-            <Input
-              id="figma-url"
-              value={figmaUrl}
-              onChange={(e) => setFigmaUrl(e.target.value)}
-              placeholder="https://www.figma.com/file/..."
-              disabled={isLoading}
-            />
+            <h3 className="font-bold mb-2">Font Families Found:</h3>
+            <ul className="list-disc list-inside bg-gray-100 p-4 rounded-md">
+              {retrievedFonts.map(font => <li key={font}>{font}</li>)}
+            </ul>
           </div>
-          <div>
-            <Label htmlFor="figma-token">Figma Access Token</Label>
-            <Input
-              id="figma-token"
-              type="password"
-              value={figmaToken}
-              onChange={(e) => setFigmaToken(e.target.value)}
-              placeholder="Your personal access token"
-              disabled={isLoading}
-            />
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="figma-url">Figma File URL</Label>
+              <Input
+                id="figma-url"
+                value={figmaUrl}
+                onChange={(e) => setFigmaUrl(e.target.value)}
+                placeholder="https://www.figma.com/file/..."
+                disabled={isLoading}
+              />
+            </div>
+            <div>
+              <Label htmlFor="figma-token">Figma Access Token</Label>
+              <Input
+                id="figma-token"
+                type="password"
+                value={figmaToken}
+                onChange={(e) => setFigmaToken(e.target.value)}
+                placeholder="Your personal access token"
+                disabled={isLoading}
+              />
+            </div>
           </div>
-        </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isLoading}>
+          <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
             Cancel
           </Button>
-          <Button onClick={handleImportClick} disabled={isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Import
-          </Button>
+          {retrievedFonts ? (
+            <Button onClick={handleConfirmImport} disabled={isLoading}>
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm Import
+            </Button>
+          ) : (
+            <Button onClick={handleFetchClick} disabled={isLoading}>
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Fetch Project
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
