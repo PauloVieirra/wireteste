@@ -352,28 +352,26 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
         );
       }
       break;
-    case 'frame':
-      const hasBackground = element.backgroundColor && element.backgroundColor !== 'transparent';
-      component = (
-        <Group {...commonProps} ref={shapeRef}>
-          <Rect
-            width={element.width}
-            height={element.height}
-            fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : element.backgroundColor || 'transparent'}
-            stroke={isSelected ? 'lightblue' : '#e5e7eb'}
-            strokeWidth={hasBackground ? 0 : 2}
-            dash={hasBackground ? [] : [10, 5]}
-            cornerRadius={[
-              element.borderTopLeftRadius || 0,
-              element.borderTopRightRadius || 0,
-              element.borderBottomRightRadius || 0,
-              element.borderBottomLeftRadius || 0,
-            ]}
-          />
-        </Group>
-      );
-      break;
-    default:
+          case 'frame':
+            component = (
+              <Group {...commonProps} ref={shapeRef}>
+                <Rect
+                  width={element.width}
+                  height={element.height}
+                  fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : (element.backgroundColor || 'transparent')}
+                  stroke={isSelected ? 'lightblue' : (element.borderColor || 'transparent')}
+                  strokeWidth={isSelected ? 2 : (element.borderWidth || 0)}
+                  dash={isSelected ? [10, 5] : []}
+                  cornerRadius={[
+                    element.borderTopLeftRadius || 0,
+                    element.borderTopRightRadius || 0,
+                    element.borderBottomRightRadius || 0,
+                    element.borderBottomLeftRadius || 0,
+                  ]}
+                />
+              </Group>
+            );
+            break;    default:
       component = (
         <Rect
           key={element.id}

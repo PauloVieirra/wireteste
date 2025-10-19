@@ -58,7 +58,7 @@ interface FigmaInteraction {
 export interface FigmaNode {
     id: string;
     name: string;
-    type: 'DOCUMENT' | 'CANVAS' | 'FRAME' | 'GROUP' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'VECTOR' | 'COMPONENT' | 'INSTANCE' | 'LINE';
+    type: 'DOCUMENT' | 'CANVAS' | 'FRAME' | 'GROUP' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'VECTOR' | 'COMPONENT' | 'INSTANCE' | 'LINE' | 'COMPONENT_SET';
     absoluteBoundingBox: FigmaRectangle;
     children?: FigmaNode[];
     fills?: FigmaPaint[];
@@ -71,12 +71,28 @@ export interface FigmaNode {
     componentId?: string;
     opacity?: number;
     interactions?: FigmaInteraction[];
+    isMask?: boolean;
 }
 
 export interface FigmaFile {
   document: FigmaNode;
   components: { [key: string]: any };
   name: string;
+}
+
+function findNodeById(node: FigmaNode, id: string): FigmaNode | null {
+    if (node.id === id) {
+        return node;
+    }
+    if (node.children) {
+        for (const child of node.children) {
+            const found = findNodeById(child, id);
+            if (found) {
+                return found;
+            }
+        }
+    }
+    return null;
 }
 
 function figmaColorToCss(color: FigmaColor | undefined): string {
@@ -106,40 +122,26 @@ function getIconNameFromFigmaNode(node: FigmaNode): string | null {
 
 function convertNodeToElement(
   node: FigmaNode,
-  parentFrame: FigmaNode,
+  rootFrame: FigmaNode, // Changed: This is always the top-level frame
   figmaFile: FigmaFile,
   imageUrls?: { [key: string]: string },
   svgUrls?: { [key: string]: string },
   inheritedProps?: { destinationId?: string },
   fontCollector?: Set<string>
 ): any | null {
-  console.log('Processing node:', node.id, node.type, node.name);
-  if (!node.absoluteBoundingBox) {
-    console.warn('Skipping node without absoluteBoundingBox:', node);
+  if (!node.absoluteBoundingBox || node.type === 'COMPONENT_SET') {
+    console.warn('Skipping node without absoluteBoundingBox or of type COMPONENT_SET:', node);
     return null;
-  }
-
-  if (node.interactions && node.interactions.length > 0) {
-    console.log(`Interactions array for node '${node.name}' (${node.id}):`, JSON.stringify(node.interactions, null, 2));
   }
 
   const clickInteraction = node.interactions?.find(
     (interaction) =>
-      interaction &&
-      interaction.trigger &&
-      interaction.trigger.type === 'ON_CLICK' &&
-      interaction.actions &&
-      interaction.actions.length > 0 &&
-      interaction.actions[0].type === 'NODE' &&
+      interaction?.trigger?.type === 'ON_CLICK' &&
+      interaction.actions?.[0]?.type === 'NODE' &&
       interaction.actions[0].navigation === 'NAVIGATE'
   );
 
-  // Prioritize the node's own interaction, but fall back to the one inherited from a parent group.
   const destinationId = clickInteraction?.actions[0].destinationId || inheritedProps?.destinationId;
-
-  if (clickInteraction) {
-    console.log(`Interaction found on node '${node.name}' (${node.id}), destination: ${destinationId}`);
-  }
 
   const solidFill = node.fills?.find(p => p.type === 'SOLID' && p.visible !== false);
   const imageFill = node.fills?.find(p => p.type === 'IMAGE' && p.visible !== false);
@@ -148,41 +150,64 @@ function convertNodeToElement(
   const baseElement = {
     id: node.id,
     name: node.name,
-    x: node.absoluteBoundingBox.x - parentFrame.absoluteBoundingBox.x,
-    y: node.absoluteBoundingBox.y - parentFrame.absoluteBoundingBox.y,
+    // Corrected: Position is always relative to the root frame
+    x: node.absoluteBoundingBox.x - rootFrame.absoluteBoundingBox.x,
+    y: node.absoluteBoundingBox.y - rootFrame.absoluteBoundingBox.y,
     width: node.absoluteBoundingBox.width,
     height: node.absoluteBoundingBox.height,
     borderWidth: node.strokeWeight || 0,
     borderColor: solidStroke ? figmaColorToCss(solidStroke.color) : 'transparent',
     backgroundColor: solidFill ? figmaColorToCss(solidFill.color) : 'transparent',
     opacity: node.opacity ?? 1,
-    destinationId: destinationId, // Use the correctly resolved destinationId
+    navigationTarget: destinationId,
   };
 
-  if (svgUrls && svgUrls[node.id]) {
-    const element = {
+  const hasChildren = !!(node.children && node.children.length > 0);
+  const isComponentOrInstance = node.type === 'COMPONENT' || node.type === 'INSTANCE';
+
+  if (node.type === 'GROUP' || node.type === 'FRAME' || node.type === 'INSTANCE' || node.type === 'COMPONENT') {
+    const containerElement = {
+        ...baseElement,
+        type: 'frame', // Treat all these as simple container frames in our tool
+        // Make the container itself transparent by default unless it has its own fill
+        backgroundColor: solidFill ? figmaColorToCss(solidFill.color) : 'transparent',
+    };
+
+    const childrenElements = node.children?.flatMap(child => {
+        // Corrected: Pass down the rootFrame, not the current node
+        return convertNodeToElement(child, rootFrame, figmaFile, imageUrls, svgUrls, { destinationId: baseElement.navigationTarget }, fontCollector);
+    }).filter(Boolean) || [];
+
+    // We return the children directly, and the container is just for positioning them.
+    // The container itself isn't added as a separate element unless it has a visual style.
+    if (containerElement.backgroundColor === 'transparent' && containerElement.borderWidth === 0) {
+        return childrenElements.flat(Infinity);
+    }
+    
+    // If the container has a style, add it to the list.
+    return [containerElement, ...childrenElements.flat(Infinity)];
+  }
+
+  if ((node.type === 'VECTOR' || (!hasChildren && !isComponentOrInstance)) && svgUrls && svgUrls[node.id]) {
+    return {
       ...baseElement,
       type: 'image',
       imageSrc: svgUrls[node.id],
     };
-    console.log('Created SVG image element:', element);
-    return element;
   }
 
-  if (imageFill && imageUrls && imageUrls[node.id]) {
-    const element = {
+  if ((node.type === 'VECTOR' || (!hasChildren && !isComponentOrInstance)) && imageFill && imageUrls && imageUrls[node.id]) {
+    return {
       ...baseElement,
       type: 'image',
       imageSrc: imageUrls[node.id],
     };
-    console.log('Created image element:', element);
-    return element;
   }
 
   switch (node.type) {
     case 'RECTANGLE':
       const radii = node.rectangleCornerRadii;
-      const rectangleElement = {
+      return {
         ...baseElement,
         type: 'rectangle',
         borderTopLeftRadius: radii ? radii[0] : node.cornerRadius || 0,
@@ -190,15 +215,11 @@ function convertNodeToElement(
         borderBottomRightRadius: radii ? radii[2] : node.cornerRadius || 0,
         borderBottomLeftRadius: radii ? radii[3] : node.cornerRadius || 0,
       };
-      console.log('Created rectangle element:', rectangleElement);
-      return rectangleElement;
     case 'ELLIPSE':
-      const ellipseElement = {
+      return {
         ...baseElement,
         type: 'circle',
       };
-      console.log('Created ellipse element:', ellipseElement);
-      return ellipseElement;
     case 'TEXT':
       const textElement = {
         ...baseElement,
@@ -218,43 +239,15 @@ function convertNodeToElement(
       if (fontCollector && textElement.fontFamily) {
         fontCollector.add(textElement.fontFamily);
       }
-      console.log('Created text element:', textElement);
       return textElement;
-    case 'VECTOR':
-    case 'INSTANCE':
-    case 'COMPONENT':
-    case 'GROUP':
-    case 'FRAME':
-      const iconName = getIconNameFromFigmaNode(node);
-      if (iconName) {
-        const iconElement = {
-          ...baseElement,
-          type: 'icon',
-          iconName: iconName,
-          fillColor: solidFill ? figmaColorToCss(solidFill.color) : '#000000',
+    case 'LINE':
+        return {
+            ...baseElement,
+            type: 'line',
+            height: baseElement.borderWidth, // For lines, height is the stroke weight
+            backgroundColor: baseElement.borderColor, // The color is the stroke color
+            borderWidth: 0, // It's not a border, it's a fill
         };
-        console.log('Created icon element:', iconElement);
-        return iconElement;
-      }
-
-      const frameElement = {
-        ...baseElement,
-        type: 'frame',
-      };
-
-      const childrenElements = node.children?.flatMap(child => {
-        // Pass the current node as the parentFrame for correct relative coordinate calculation, and pass down the current element's destinationId.
-        const convertedElements = convertNodeToElement(child, node, figmaFile, imageUrls, svgUrls, { destinationId: baseElement.destinationId }, fontCollector);
-        if (convertedElements) {
-            const elements = Array.isArray(convertedElements) ? convertedElements : [convertedElements];
-            if (elements.length > 0) {
-                elements[0].parentId = node.id;
-            }
-        }
-        return convertedElements;
-      }) || [];
-
-      return [frameElement, ...childrenElements];
     default:
       console.warn('Skipping unhandled node type:', node.type, node);
       return null;
@@ -271,7 +264,7 @@ export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [ke
 
   const firstCanvas = canvases[0];
 
-  const frames = firstCanvas.children?.filter(child => child.type === 'FRAME');
+  const frames = firstCanvas.children?.filter(child => child.type === 'FRAME' && child.absoluteBoundingBox);
   if (!frames || frames.length === 0) {
     throw new Error("No frames found on the first page. Please ensure your screens are wrapped in Frames.");
   }
@@ -284,6 +277,7 @@ export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [ke
   const wireframes = frames.map(frame => {
     const elements = frame.children?.flatMap(child => {
       try {
+        // Corrected: Pass the top-level frame as the root for positioning
         return convertNodeToElement(child, frame, figmaFile, imageUrls, svgUrls, undefined, fontFamilies);
       } catch (error) {
         console.error('Error converting node:', child, error);
@@ -294,10 +288,10 @@ export function convertFigmaToWireframes(figmaFile: FigmaFile, imageUrls?: { [ke
     const flattenedElements = elements.flat(Infinity);
 
     flattenedElements.forEach(element => {
-        if (element.destinationId) {
+        if (element.navigationTarget) {
             links.push({
                 sourceId: element.id,
-                destinationId: element.destinationId,
+                destinationId: element.navigationTarget,
             });
         }
     });

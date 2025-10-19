@@ -275,7 +275,7 @@ interface Project {
   resolution: 'mobile' | 'tablet' | 'desktop';
   wireframes: any[]; // Simplificado para any[] para evitar importações complexas aqui
   gridConfig?: any;
-  components: any[];
+  components?: any[];
 }
 
 /**

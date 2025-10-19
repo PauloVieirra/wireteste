@@ -193,6 +193,7 @@ const getElementMinimumSize = (elementType: string) => {
 };
 
 export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeEditorProps) {
+  const [internalProject, setInternalProject] = useState<Project>(project);
   const [selectedTool, setSelectedTool] = useState<string>('select');
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [activeWireframe, setActiveWireframe] = useState<string>('none');
@@ -221,11 +222,6 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const scrollPos = useRef({ left: 0, top: 0, shouldUpdate: false });
   const { showToast } = useToast();
 
-  const updateAndSaveProject = (updatedProject: Project) => {
-    onUpdateProject(updatedProject);
-    saveProjectLocally(updatedProject);
-  };
-
   const hasLocalChangesRef = useRef(false);
   const unsavedChangesToastShownRef = useRef(false);
 
@@ -235,15 +231,20 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     setSaveStatus('Atualizar');
   }, []);
 
-  useEffect(() => {
-    const projectId = project.id;
-    const localProjectJson = localStorage.getItem(`wireframe_project_${projectId}`);
+  const updateAndSaveProject = (updatedProject: Project) => {
+    setInternalProject(updatedProject);
+    saveProjectLocally(updatedProject);
+  };
 
+  useEffect(() => {
+    const localProjectJson = localStorage.getItem(`wireframe_project_${project.id}`);
     if (localProjectJson) {
       try {
-        const localProject: Project = JSON.parse(localProjectJson);
-        if (JSON.stringify(localProject.wireframes) !== JSON.stringify(project.wireframes) || 
+        const localProject = JSON.parse(localProjectJson);
+        if (JSON.stringify(localProject.wireframes) !== JSON.stringify(project.wireframes) ||
             JSON.stringify(localProject.gridConfig) !== JSON.stringify(project.gridConfig)) {
+          setInternalProject(localProject);
+          setGridConfig(localProject.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
           setSaveStatus('Atualizar');
           hasLocalChangesRef.current = true;
           if (!unsavedChangesToastShownRef.current) {
@@ -251,20 +252,24 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
             unsavedChangesToastShownRef.current = true;
           }
         } else {
+          setInternalProject(project);
+          setGridConfig(project.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
           setSaveStatus('Atualizado');
           hasLocalChangesRef.current = false;
-          unsavedChangesToastShownRef.current = false;
+          localStorage.removeItem(`wireframe_project_${project.id}`);
         }
       } catch (e) {
-        console.error("Erro ao carregar projeto do localStorage:", e);
-        localStorage.removeItem(`wireframe_project_${projectId}`);
+        console.error("Error loading project from localStorage:", e);
+        setInternalProject(project);
+        localStorage.removeItem(`wireframe_project_${project.id}`);
       }
     } else {
+      setInternalProject(project);
+      setGridConfig(project.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
       setSaveStatus('Atualizado');
       hasLocalChangesRef.current = false;
-      unsavedChangesToastShownRef.current = false;
     }
-  }, [project.id, project.wireframes, project.gridConfig, showToast]);
+  }, [project, showToast]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -283,11 +288,12 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const handleSaveProject = async () => {
     setSaveStatus('Salvando...');
     try {
-      await saveOrUpdateProject(project);
-      onUpdateProject(project);
-      showToast('Projeto salvo com sucesso!', 'success');
-      setSaveStatus('Atualizado');
+      await saveOrUpdateProject(internalProject);
+      onUpdateProject(internalProject);
+      localStorage.removeItem(`wireframe_project_${internalProject.id}`);
       hasLocalChangesRef.current = false;
+      setSaveStatus('Atualizado');
+      showToast('Projeto salvo com sucesso!', 'success');
     } catch (error) {
       if (error instanceof Error) {
         showToast(`Erro ao salvar: ${error.message}`, 'error');
@@ -296,7 +302,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     }
   };
 
-  const currentWireframe = activeWireframe !== 'none' ? project.wireframes.find(w => w.id === activeWireframe) : null;
+  const currentWireframe = activeWireframe !== 'none' ? internalProject.wireframes.find(w => w.id === activeWireframe) : null;
 
   const getDimensionsForResolution = (resolution: 'mobile' | 'tablet' | 'desktop' | 'custom', projectWidth?: number, projectHeight?: number) => {
     switch (resolution) {
@@ -312,7 +318,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     if (currentWireframe && currentWireframe.width && currentWireframe.height) {
         return { width: currentWireframe.width, height: currentWireframe.height };
     }
-    return getDimensionsForResolution(project.resolution, project.width, project.height);
+    return getDimensionsForResolution(internalProject.resolution, internalProject.width, internalProject.height);
   };
 
   const canvasDimensions = getCanvasDimensions();
@@ -322,8 +328,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const updateElementProperties = useCallback((elementId: string, props: Partial<WireframeElement>) => {
     triggerUnsyncedState();
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w =>
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
         activeWireframe !== 'none' && w.id === activeWireframe
           ? {
               ...w,
@@ -353,7 +359,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       )
     };
     updateAndSaveProject(updatedProject);
-  }, [project, activeWireframe, onUpdateProject, saveProjectLocally]);
+  }, [internalProject, activeWireframe]);
 
   const updateElementProperty = useCallback((elementId: string, property: string, value: any) => {
     updateElementProperties(elementId, { [property]: value });
@@ -363,8 +369,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     if (!selectedElement) return;
     triggerUnsyncedState();
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w =>
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
         w.id === activeWireframe
           ? {
               ...w,
@@ -381,16 +387,16 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   };
 
   useEffect(() => {
-    if (project.wireframes.length > 0 && activeWireframe === 'none') {
-      setActiveWireframe(project.wireframes[0].id);
+    if (internalProject.wireframes.length > 0 && activeWireframe === 'none') {
+      setActiveWireframe(internalProject.wireframes[0].id);
       setZoom(1);
     }
-  }, [project.wireframes, activeWireframe]);
+  }, [internalProject.wireframes, activeWireframe]);
 
   useEffect(() => {
-    if (project.wireframes.length === 0) {
+    if (internalProject.wireframes.length === 0) {
       triggerUnsyncedState();
-      const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
+      const { width, height } = getDimensionsForResolution(internalProject.resolution, internalProject.width, internalProject.height);
       const firstWireframe: Wireframe = {
         id: Date.now().toString(),
         name: 'Tela 1',
@@ -400,14 +406,14 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       };
 
       const updatedProject = {
-        ...project,
+        ...internalProject,
         wireframes: [firstWireframe]
       };
       
       updateAndSaveProject(updatedProject);
       setActiveWireframe(firstWireframe.id);
     }
-  }, [project, onUpdateProject, activeWireframe]);
+  }, [internalProject, activeWireframe]);
 
   useEffect(() => {
     if (selectedElement) {
@@ -590,8 +596,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       };
 
       const updatedProject = {
-        ...project,
-        wireframes: project.wireframes.map(w => 
+        ...internalProject,
+        wireframes: internalProject.wireframes.map(w => 
           w.id === activeWireframe 
             ? { ...w, elements: [...w.elements, newElement] }
             : w
@@ -651,8 +657,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     };
 
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w => 
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w => 
         w.id === activeWireframe 
           ? { ...w, elements: [...w.elements, newElement] }
           : w
@@ -678,7 +684,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const handleAddWireframe = () => {
     if (!newWireframeName.trim()) return;
     triggerUnsyncedState();
-    const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
+    const { width, height } = getDimensionsForResolution(internalProject.resolution, internalProject.width, internalProject.height);
     const newWireframe: Wireframe = {
       id: Date.now().toString(),
       name: newWireframeName.trim(),
@@ -688,8 +694,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     };
 
     const updatedProject = {
-      ...project,
-      wireframes: [...project.wireframes, newWireframe]
+      ...internalProject,
+      wireframes: [...internalProject.wireframes, newWireframe]
     };
 
     updateAndSaveProject(updatedProject);
@@ -702,8 +708,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const handleUpdateWireframe = (wireframeId: string, updates: Partial<Wireframe>) => {
     triggerUnsyncedState();
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w =>
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
         w.id === wireframeId ? { ...w, ...updates } : w
       )
     };
@@ -711,14 +717,14 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   };
 
   const handleDeleteWireframe = (wireframeId: string) => {
-    if (project.wireframes.length <= 1) {
+    if (internalProject.wireframes.length <= 1) {
       showToast('Não é possível excluir a última tela de usuário!', 'error');
       return;
     }
     triggerUnsyncedState();
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.filter(w => w.id !== wireframeId)
+      ...internalProject,
+      wireframes: internalProject.wireframes.filter(w => w.id !== wireframeId)
     };
 
     if (activeWireframe === wireframeId) {
@@ -733,7 +739,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     triggerUnsyncedState();
     setGridConfig(newConfig);
     const updatedProject = {
-      ...project,
+      ...internalProject,
       gridConfig: newConfig
     };
     updateAndSaveProject(updatedProject);
@@ -771,8 +777,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     };
 
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w =>
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
         w.id === activeWireframe
           ? { ...w, elements: [...w.elements, newElement] }
           : w
@@ -796,8 +802,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       };
 
       const updatedProject = {
-        ...project,
-        wireframes: project.wireframes.map(w => 
+        ...internalProject,
+        wireframes: internalProject.wireframes.map(w => 
           w.id === activeWireframe 
             ? { ...w, elements: [...w.elements, newElement] }
             : w
@@ -827,8 +833,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     }
 
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w => 
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w => 
         w.id === activeWireframe 
           ? { 
               ...w, 
@@ -849,8 +855,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     if (!selectedElement || !currentWireframe) return;
     triggerUnsyncedState();
     const updatedProject = {
-      ...project,
-      wireframes: project.wireframes.map(w => 
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w => 
         w.id === activeWireframe 
           ? { ...w, elements: w.elements.filter(el => el.id !== selectedElement) }
           : w
@@ -930,8 +936,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
               };
 
               const updatedProject = {
-                ...project,
-                wireframes: project.wireframes.map(w =>
+                ...internalProject,
+                wireframes: internalProject.wireframes.map(w =>
                   w.id === activeWireframe
                     ? { ...w, elements: [...w.elements, newElement] }
                     : w
@@ -949,7 +955,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       }
     }
     showToast('Nenhuma imagem encontrada na área de transferência.', 'info');
-  }, [project, activeWireframe, onUpdateProject, showToast, stageRef, canvasDimensions, setSelectedElement, currentWireframe]);
+  }, [internalProject, activeWireframe, showToast, stageRef, canvasDimensions, setSelectedElement, currentWireframe]);
 
   const handleElementMouseDown = useCallback((elementId: string) => {
     const container = canvasContainerRef.current;
@@ -1056,7 +1062,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${currentWireframe.name.replace(/\s/g, '_')}_${project.resolution}.svg`;
+      link.download = `${currentWireframe.name.replace(/\s/g, '_')}_${internalProject.resolution}.svg`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1190,11 +1196,11 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
     const firstFrame = wireframesWithNavigation[0];
     const updatedProject = {
-      ...project,
+      ...internalProject,
       resolution: 'custom' as const,
       width: firstFrame.width,
       height: firstFrame.height,
-      wireframes: [...project.wireframes, ...wireframesWithNavigation],
+      wireframes: [...internalProject.wireframes, ...wireframesWithNavigation],
     };
 
     updateAndSaveProject(updatedProject);
@@ -1276,8 +1282,8 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
       };
 
       const updatedProject = {
-        ...project,
-        wireframes: [...project.wireframes, newWireframe],
+        ...internalProject,
+        wireframes: [...internalProject.wireframes, newWireframe],
       };
 
       updateAndSaveProject(updatedProject);
@@ -1397,7 +1403,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
             <div className="h-full border-r border-border bg-card p-0">
               <ElementTree
-                wireframes={project.wireframes}
+                wireframes={internalProject.wireframes}
                 activeWireframe={activeWireframe}
                 selectedElement={selectedElement}
                 onSelectWireframe={handleSelectWireframe}
@@ -1447,7 +1453,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                   >
                     <WireframeCanvas
                       ref={stageRef}
-                      project={project}
+                      project={internalProject}
                       wireframe={currentWireframe}
                       zoom={1}
                       onSelectElement={handleElementMouseDown}
@@ -1543,7 +1549,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
                       </div>
 
-                      <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={project.resolution} />
+                      <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={internalProject.resolution} />
 
                       {selectedElementData.type === 'text' && (
                         <div className="pt-2">
@@ -1561,7 +1567,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                             <Input id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
                           </div>
 
-                          <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={project.resolution} />
+                          <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={internalProject.resolution} />
 
                           <TextColorPicker value={selectedElementData.textColor || 'var(--foreground)'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)} />
 
@@ -1580,7 +1586,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">Nenhuma navegação</SelectItem>
-                            {project.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
+                            {internalProject.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
                                 <SelectItem key={wireframe.id} value={wireframe.id}>
                                   {wireframe.name}
                                 </SelectItem>
@@ -1674,7 +1680,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
         fetchFigmaData={handleFetchFigmaData}
         onImport={handleConfirmFigmaImport}
       />
-      <PublishModal isOpen={isPublishModalOpen} onClose={() => setIsPublishModalOpen(false)} wireframes={project.wireframes} onPublish={handlePublish} />
+      <PublishModal isOpen={isPublishModalOpen} onClose={() => setIsPublishModalOpen(false)} wireframes={internalProject.wireframes} onPublish={handlePublish} />
     </div>
   );
 }

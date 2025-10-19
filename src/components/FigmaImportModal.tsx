@@ -26,29 +26,29 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
   fetchFigmaData,
 }) => {
   const [figmaUrl, setFigmaUrl] = useState('');
-  const [figmaToken, setFigmaToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [retrievedFonts, setRetrievedFonts] = useState<string[] | null>(null);
   const [importData, setImportData] = useState<any | null>(null);
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('figmaToken');
-    if (storedToken) {
-      setFigmaToken(storedToken);
-    }
-  }, []);
-
   const handleFetchClick = async () => {
-    if (figmaUrl && figmaToken) {
-      setIsLoading(true);
-      localStorage.setItem('figmaToken', figmaToken);
-      try {
-        const data = await fetchFigmaData(figmaUrl, figmaToken);
-        setImportData(data);
-        setRetrievedFonts(data.fontFamilies);
-      } finally {
-        setIsLoading(false);
-      }
+    const storedToken = localStorage.getItem('figma_token');
+    if (!figmaUrl) {
+      alert('Por favor informe o Figma File URL.');
+      return;
+    }
+
+    if (!storedToken) {
+      alert('Token do Figma não encontrado. Por favor configure o token em Configuração do Figma (menu principal).');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const data = await fetchFigmaData(figmaUrl, storedToken);
+      setImportData(data);
+      setRetrievedFonts(data.fontFamilies);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -98,17 +98,6 @@ const FigmaImportModal: React.FC<FigmaImportModalProps> = ({
                 value={figmaUrl}
                 onChange={(e) => setFigmaUrl(e.target.value)}
                 placeholder="https://www.figma.com/file/..."
-                disabled={isLoading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="figma-token">Figma Access Token</Label>
-              <Input
-                id="figma-token"
-                type="password"
-                value={figmaToken}
-                onChange={(e) => setFigmaToken(e.target.value)}
-                placeholder="Your personal access token"
                 disabled={isLoading}
               />
             </div>

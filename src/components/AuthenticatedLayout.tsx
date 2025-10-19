@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
@@ -70,6 +72,29 @@ export function AuthenticatedLayout({ user, children, onLogout, hasUnsavedChange
   const currentPlan = planConfig[user.plan];
   const PlanIcon = currentPlan.icon;
 
+  // Figma token state persisted in localStorage
+  const [figmaToken, setFigmaToken] = useState('');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('figma_token');
+      if (stored) setFigmaToken(stored);
+    } catch (e) {
+      console.error('Erro ao ler o token do Figma do localStorage', e);
+    }
+  }, []);
+
+  const saveFigmaToken = () => {
+    try {
+      localStorage.setItem('figma_token', figmaToken || '');
+      // Provide minimal feedback
+      alert('Token do Figma salvo localmente.');
+    } catch (e) {
+      console.error('Erro ao salvar token do Figma', e);
+      alert('Erro ao salvar token. Veja o console para detalhes.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -123,6 +148,26 @@ export function AuthenticatedLayout({ user, children, onLogout, hasUnsavedChange
                           <Badge variant="secondary" className="text-xs">
                             Ativo
                           </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  
+                    {/* Figma Configuration Card */}
+                    <Card className="mt-4">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-2">
+                          <Info className="w-4 h-4" />
+                          <CardTitle className="text-sm">Configuração do Figma</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Token de acesso (Figma)</Label>
+                          <div className="flex gap-2">
+                            <Input id="figma-token" type="password" placeholder="Cole o token do Figma aqui" value={figmaToken} onChange={(e) => setFigmaToken(e.target.value)} />
+                            <Button size="sm" onClick={saveFigmaToken}>Salvar</Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">O token é armazenado localmente e persistirá mesmo após atualizar a página ou reiniciar o projeto.</p>
                         </div>
                       </CardContent>
                     </Card>
