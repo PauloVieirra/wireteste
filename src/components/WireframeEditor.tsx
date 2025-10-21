@@ -33,6 +33,7 @@ import GridOverlay from './GridOverlay';
 import { Signal } from './Signal';
 import { convertFigmaToWireframes, FigmaFile } from '../utils/figmaImporter';
 import { FloatingToolbar } from './FloatingToolbar';
+import MockupView from './MockupView';
 import { Flex, Spin } from 'antd';
 
 const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
@@ -215,6 +216,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const [isFigmaImportModalOpen, setIsFigmaImportModalOpen] = useState(false);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'Atualizado' | 'Atualizar' | 'Salvando...' | 'Verificando...' | 'Erro ao salvar'>('Atualizado');
+  const [activeMockup, setActiveMockup] = useState<string | null>(null);
 
 
   const stageRef = useRef<Konva.Stage>(null);
@@ -1401,274 +1403,296 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
 
       <div className="flex-1 min-h-0">
         <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-            <div className="h-full border-r border-border bg-card p-0">
-              <ElementTree
-                wireframes={internalProject.wireframes}
-                activeWireframe={activeWireframe}
-                selectedElement={selectedElement}
-                onSelectWireframe={handleSelectWireframe}
-                onSelectElement={setSelectedElement}
-                onUpdateWireframe={handleUpdateWireframe}
-                onUpdateElement={updateElementProperty}
-                onDeleteWireframe={handleDeleteWireframe}
-                onDeleteElement={handleDeleteSelectedElement}
-                onReparentElement={handleReparentElement}
+          {activeMockup === null && (
+            <>
+              <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
+                <div className="h-full border-r border-border bg-card p-0">
+                  <ElementTree
+                    wireframes={internalProject.wireframes}
+                    activeWireframe={activeWireframe}
+                    selectedElement={selectedElement}
+                    onSelectWireframe={handleSelectWireframe}
+                    onSelectElement={setSelectedElement}
+                    onUpdateWireframe={handleUpdateWireframe}
+                    onUpdateElement={updateElementProperty}
+                    onDeleteWireframe={handleDeleteWireframe}
+                    onDeleteElement={handleDeleteSelectedElement}
+                    onReparentElement={handleReparentElement}
+                  />
+                </div>
+              </ResizablePanel>
+              <ResizableHandle />
+            </>
+          )}
+
+          <ResizablePanel defaultSize={activeMockup !== null ? 100 : 64} minSize={40} className="relative">
+            <FloatingToolbar 
+              activeMockup={activeMockup}
+              onSelectMockup={setActiveMockup}
+              style={{
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)'
+              }}
+            />
+            {activeMockup !== null ? (
+              <MockupView 
+                project={internalProject} 
+                activeWireframeId={activeWireframe} 
+                activeMockup={activeMockup}
               />
-            </div>
-          </ResizablePanel>
-
-          <ResizableHandle />
-
-          <ResizablePanel defaultSize={64} minSize={40} className="relative">
-            <FloatingToolbar />
-            <div
-              ref={canvasContainerRef}
-              tabIndex={0}
-              onMouseEnter={() => (isPointerInsideRef.current = true)}
-              onMouseLeave={() => (isPointerInsideRef.current = false)}
-              onFocus={() => (isPointerInsideRef.current = true)}
-              onBlur={() => (isPointerInsideRef.current = false)}
-              style={{ touchAction: 'none', cursor: 'grab', paddingTop:'50px', overflow:'auto' }}
-              className="h-full w-full bg-gray-50"
-              onDragOver={handleCanvasDragOver}
-              onDragLeave={handleCanvasDragLeave}
-              onDrop={handleCanvasDrop}
-              onPaste={handleCanvasPaste}
-            >
-              <div className="flex justify-center w-full">
-                <div
-                  style={{
-                    width: canvasDimensions.width * zoom,
-                    height: canvasDimensions.height * zoom,
-                  }}
-                >
+            ) : (
+              <div
+                ref={canvasContainerRef}
+                tabIndex={0}
+                onMouseEnter={() => (isPointerInsideRef.current = true)}
+                onMouseLeave={() => (isPointerInsideRef.current = false)}
+                onFocus={() => (isPointerInsideRef.current = true)}
+                onBlur={() => (isPointerInsideRef.current = false)}
+                style={{ touchAction: 'none', cursor: 'grab', paddingTop: '50px', overflow: 'auto' }}
+                className="h-full w-full bg-gray-50"
+                onDragOver={handleCanvasDragOver}
+                onDragLeave={handleCanvasDragLeave}
+                onDrop={handleCanvasDrop}
+                onPaste={handleCanvasPaste}
+              >
+                <div className="flex justify-center w-full">
                   <div
-                    className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
                     style={{
-                      width: canvasDimensions.width,
-                      height: canvasDimensions.height,
-                      transform: `scale(${zoom})`,
-                      transformOrigin: 'top left',
+                      width: canvasDimensions.width * zoom,
+                      height: canvasDimensions.height * zoom,
                     }}
-                    data-canvas-background="true"
                   >
-                    <WireframeCanvas
-                      ref={stageRef}
-                      project={internalProject}
-                      wireframe={currentWireframe}
-                      zoom={1}
-                      onSelectElement={handleElementMouseDown}
-                      selectedElementId={selectedElement}
-                      onUpdateElement={updateElementProperty}
-                      onElementDragEnd={handleElementDragEnd}
-                      onElementTransformEnd={handleElementTransformEnd}
-                      canvasDimensions={canvasDimensions}
-                      gridConfig={gridConfig}
-                      getFontSize={getFontSize}
-                      getFontFamilyCSS={getFontFamilyCSS}
-                      getElementMinimumSize={getElementMinimumSize}
-                      onCanvasMouseDown={handleCanvasMouseDown}
-                      isReadOnly={false}
-                    />
-                    <GridOverlay gridConfig={gridConfig} width={canvasDimensions.width} />
+                    <div
+                      className={`relative bg-white shadow-lg ${isDragOverCanvas ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
+                      style={{
+                        width: canvasDimensions.width,
+                        height: canvasDimensions.height,
+                        transform: `scale(${zoom})`,
+                        transformOrigin: 'top left',
+                      }}
+                      data-canvas-background="true"
+                    >
+                      <WireframeCanvas
+                        ref={stageRef}
+                        project={internalProject}
+                        wireframe={currentWireframe}
+                        zoom={1}
+                        onSelectElement={handleElementMouseDown}
+                        selectedElementId={selectedElement}
+                        onUpdateElement={updateElementProperty}
+                        onElementDragEnd={handleElementDragEnd}
+                        onElementTransformEnd={handleElementTransformEnd}
+                        canvasDimensions={canvasDimensions}
+                        gridConfig={gridConfig}
+                        getFontSize={getFontSize}
+                        getFontFamilyCSS={getFontFamilyCSS}
+                        getElementMinimumSize={getElementMinimumSize}
+                        onCanvasMouseDown={handleCanvasMouseDown}
+                        isReadOnly={false}
+                      />
+                      <GridOverlay gridConfig={gridConfig} width={canvasDimensions.width} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </ResizablePanel>
 
-          <ResizableHandle />
+          {activeMockup === null && (
+            <>
+              <ResizableHandle />
+              <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
+                <div className="h-full border-l border-border bg-card">
+                  <Tabs value={sidebarTab} onValueChange={(value) => setSidebarTab(value as 'components' | 'properties')} className="h-full flex flex-col">
+                    <TabsList className="w-full flex-shrink-0">
+                      <TabsTrigger value="components" className="flex-1">Componentes</TabsTrigger>
+                      <TabsTrigger value="properties" className="flex-1">Propriedades</TabsTrigger>
+                    </TabsList>
 
-          <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-            <div className="h-full border-l border-border bg-card">
-              <Tabs value={sidebarTab} onValueChange={(value) => setSidebarTab(value as 'components' | 'properties')} className="h-full flex flex-col">
-                <TabsList className="w-full flex-shrink-0">
-                  <TabsTrigger value="components" className="flex-1">Componentes</TabsTrigger>
-                  <TabsTrigger value="properties" className="flex-1">Propriedades</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="components" className="flex-1 p-4 space-y-6 overflow-y-auto">
-                  <div>
-                    <Label className="text-sm font-medium">Ferramentas de Desenho</Label>
-                    <div className="grid grid-cols-3 gap-2 mt-2">
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'rectangle')} onDragEnd={handleDragEnd} draggable>
-                        <Square className="w-4 h-4" />
-                        <span className="text-xs">Retângulo</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'circle')} onDragEnd={handleDragEnd} draggable>
-                        <Circle className="w-4 h-4" />
-                        <span className="text-xs">Círculo</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'line')} onDragEnd={handleDragEnd} draggable>
-                        <Minus className="w-4 h-4" />
-                        <span className="text-xs">Linha</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'frame')} onDragEnd={handleDragEnd} draggable>
-                        <Square className="w-4 h-4" />
-                        <span className="text-xs">Frame</span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm font-medium">Elementos UI</Label>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'text')} onDragEnd={handleDragEnd} draggable>
-                        <Type className="w-4 h-4" />
-                        <span className="text-xs">Texto</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'button')} onDragEnd={handleDragEnd} draggable>
-                        <MousePointer className="w-4 h-4" />
-                        <span className="text-xs">Botão</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'image')} onDragEnd={handleDragEnd} draggable>
-                        <Image className="w-4 h-4" />
-                        <span className="text-xs">Imagem</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'video')} onDragEnd={handleDragEnd} draggable>
-                        <Video className="w-4 h-4" />
-                        <span className="text-xs">Vídeo</span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <IconLibrary onSelectIcon={(iconName, iconComponent) => addIconFromLibrary(iconName)} />
-
-                  <div>
-                    <Label className="text-sm font-medium">Configurações do Grid</Label>
-                    <div className="mt-2">
-                      <GridSettings config={gridConfig} onChange={handleGridConfigChange} />
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="properties" className="flex-1 p-4 overflow-y-auto">
-                  {selectedElementData ? (
-                    <div className="space-y-4">
+                    <TabsContent value="components" className="flex-1 p-4 space-y-6 overflow-y-auto">
                       <div>
-                        <Label className="text-sm font-medium">Elemento Selecionado</Label>
-                        <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
-                      </div>
-
-                      <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={internalProject.resolution} />
-
-                      {selectedElementData.type === 'text' && (
-                        <div className="pt-2">
-                          <Button onClick={() => setIsTextEditorOpen(true)} className="w-full flex items-center gap-2" variant="outline">
-                            <Edit3 className="w-4 h-4" />
-                            Editor Inteligente
+                        <Label className="text-sm font-medium">Ferramentas de Desenho</Label>
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'rectangle')} onDragEnd={handleDragEnd} draggable>
+                            <Square className="w-4 h-4" />
+                            <span className="text-xs">Retângulo</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'circle')} onDragEnd={handleDragEnd} draggable>
+                            <Circle className="w-4 h-4" />
+                            <span className="text-xs">Círculo</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'line')} onDragEnd={handleDragEnd} draggable>
+                            <Minus className="w-4 h-4" />
+                            <span className="text-xs">Linha</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'frame')} onDragEnd={handleDragEnd} draggable>
+                            <Square className="w-4 h-4" />
+                            <span className="text-xs">Frame</span>
                           </Button>
                         </div>
-                      )}
+                      </div>
 
-                      {(selectedElementData.type === 'text' || selectedElementData.type === 'button') && (
-                        <>
+                      <div>
+                        <Label className="text-sm font-medium">Elementos UI</Label>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'text')} onDragEnd={handleDragEnd} draggable>
+                            <Type className="w-4 h-4" />
+                            <span className="text-xs">Texto</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'button')} onDragEnd={handleDragEnd} draggable>
+                            <MousePointer className="w-4 h-4" />
+                            <span className="text-xs">Botão</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'image')} onDragEnd={handleDragEnd} draggable>
+                            <Image className="w-4 h-4" />
+                            <span className="text-xs">Imagem</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-12 flex flex-col gap-1" onDragStart={(e) => handleToolDragStart(e, 'video')} onDragEnd={handleDragEnd} draggable>
+                            <Video className="w-4 h-4" />
+                            <span className="text-xs">Vídeo</span>
+                          </Button>
+                        </div>
+                      </div>
+
+                      <IconLibrary onSelectIcon={(iconName, iconComponent) => addIconFromLibrary(iconName)} />
+
+                      <div>
+                        <Label className="text-sm font-medium">Configurações do Grid</Label>
+                        <div className="mt-2">
+                          <GridSettings config={gridConfig} onChange={handleGridConfigChange} />
+                        </div>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="properties" className="flex-1 p-4 overflow-y-auto">
+                      {selectedElementData ? (
+                        <div className="space-y-4">
                           <div>
-                            <Label htmlFor="element-text">Texto</Label>
-                            <Input id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
+                            <Label className="text-sm font-medium">Elemento Selecionado</Label>
+                            <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
                           </div>
 
-                          <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={internalProject.resolution} />
+                          <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={internalProject.resolution} />
 
-                          <TextColorPicker value={selectedElementData.textColor || 'var(--foreground)'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)} />
+                          {selectedElementData.type === 'text' && (
+                            <div className="pt-2">
+                              <Button onClick={() => setIsTextEditorOpen(true)} className="w-full flex items-center gap-2" variant="outline">
+                                <Edit3 className="w-4 h-4" />
+                                Editor Inteligente
+                              </Button>
+                            </div>
+                          )}
 
-                          <TextAlignPicker value={selectedElementData.textAlign || 'left'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textAlign', value)} />
-                        </>
-                      )}
+                          {(selectedElementData.type === 'text' || selectedElementData.type === 'button') && (
+                            <>
+                              <div>
+                                <Label htmlFor="element-text">Texto</Label>
+                                <Input id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
+                              </div>
 
-                      <div>
-                        <Label className="text-sm font-medium flex items-center gap-2">
-                          <ArrowRight className="w-4 h-4" />
-                          Navegação
-                        </Label>
-                        <Select value={selectedElementData.navigationTarget || ''} onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}>
-                          <SelectTrigger className="mt-2">
-                            <SelectValue placeholder="Selecione a tela de destino" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Nenhuma navegação</SelectItem>
-                            {internalProject.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
-                                <SelectItem key={wireframe.id} value={wireframe.id}>
-                                  {wireframe.name}
+                              <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={internalProject.resolution} />
+
+                              <TextColorPicker value={selectedElementData.textColor || 'var(--foreground)'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)} />
+
+                              <TextAlignPicker value={selectedElementData.textAlign || 'left'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textAlign', value)} />
+                            </>
+                          )}
+
+                          <div>
+                            <Label className="text-sm font-medium flex items-center gap-2">
+                              <ArrowRight className="w-4 h-4" />
+                              Navegação
+                            </Label>
+                            <Select value={selectedElementData.navigationTarget || ''} onValueChange={(value) => updateElementProperty(selectedElementData.id, 'navigationTarget', value)}>
+                              <SelectTrigger className="mt-2">
+                                <SelectValue placeholder="Selecione a tela de destino" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Nenhuma navegação</SelectItem>
+                                {internalProject.wireframes.filter(w => w.id !== activeWireframe).map(wireframe => (
+                                    <SelectItem key={wireframe.id} value={wireframe.id}>
+                                      {wireframe.name}
+                                    </SelectItem>
+                                  ))}
+                                <SelectItem key="__FINISH_TEST__" value="__FINISH_TEST__">
+                                  Finalizar Teste
                                 </SelectItem>
-                              ))}
-                            <SelectItem key="__FINISH_TEST__" value="__FINISH_TEST__">
-                              Finalizar Teste
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                              </SelectContent>
+                            </Select>
+                          </div>
 
-                      {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
-                        <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
-                      )}
+                          {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
+                            <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
+                          )}
 
-                      {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
-                        <>
-                          <BorderWidthPicker value={selectedElementData.borderWidth || 0} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderWidth', value)} />
-                          <BorderColorPicker value={selectedElementData.borderColor || '#d1d5db'} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)} />
-                        </>
-                      )}
+                          {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
+                            <>
+                              <BorderWidthPicker value={selectedElementData.borderWidth || 0} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderWidth', value)} />
+                              <BorderColorPicker value={selectedElementData.borderColor || '#d1d5db'} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)} />
+                            </>
+                          )}
 
-                      {(selectedElementData.type === 'rectangle' || selectedElementData.type === 'button' || selectedElementData.type === 'frame') && (
-                        <BorderRadiusPicker
-                          topLeft={selectedElementData.borderTopLeftRadius || 0}
-                          topRight={selectedElementData.borderTopRightRadius || 0}
-                          bottomLeft={selectedElementData.borderBottomLeftRadius || 0}
-                          bottomRight={selectedElementData.borderBottomRightRadius || 0}
-                          onChange={(corner, value) => {
-                            const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
-                            updateElementProperty(selectedElementData.id, propertyName, value);
-                          }}
-                          elementId={selectedElementData.id}
-                        />
-                      )}
+                          {(selectedElementData.type === 'rectangle' || selectedElementData.type === 'button' || selectedElementData.type === 'frame') && (
+                            <BorderRadiusPicker
+                              topLeft={selectedElementData.borderTopLeftRadius || 0}
+                              topRight={selectedElementData.borderTopRightRadius || 0}
+                              bottomLeft={selectedElementData.borderBottomLeftRadius || 0}
+                              bottomRight={selectedElementData.borderBottomRightRadius || 0}
+                              onChange={(corner, value) => {
+                                const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
+                                updateElementProperty(selectedElementData.id, propertyName, value);
+                              }}
+                              elementId={selectedElementData.id}
+                            />
+                          )}
 
-                      {selectedElementData.type === 'icon' && (
-                        <div>
-                          <Label className="text-sm font-medium">Escolher Ícone</Label>
-                          <div className="mt-2">
-                            <IconLibrary onSelectIcon={(iconName, iconComponent) => { 
-                              updateElementProperties(selectedElementData.id, {
-                                iconName: iconName,
-                                iconComponent: undefined,
-                                iconId: undefined
-                              }); 
-                            }} />
+                          {selectedElementData.type === 'icon' && (
+                            <div>
+                              <Label className="text-sm font-medium">Escolher Ícone</Label>
+                              <div className="mt-2">
+                                <IconLibrary onSelectIcon={(iconName, iconComponent) => { 
+                                  updateElementProperties(selectedElementData.id, {
+                                    iconName: iconName,
+                                    iconComponent: undefined,
+                                    iconId: undefined
+                                  }); 
+                                }} />
+                              </div>
+                            </div>
+                          )}
+
+                          <div>
+                            <Label className="text-sm font-medium">Camada</Label>
+                            <div className="flex gap-2 mt-2">
+                              <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', Math.max(0, (selectedElementData.zIndex || 0) - 1))} title="Enviar para trás">
+                                <ChevronDown className="w-4 h-4" />
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', (selectedElementData.zIndex || 0) + 1)} title="Trazer para frente">
+                                <ChevronUp className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="pt-4">
+                            <Button variant="destructive" size="sm" onClick={handleDeleteSelectedElement} className="w-full">
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Excluir Elemento
+                            </Button>
                           </div>
                         </div>
-                      )}
-
-                      <div>
-                        <Label className="text-sm font-medium">Camada</Label>
-                        <div className="flex gap-2 mt-2">
-                          <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', Math.max(0, (selectedElementData.zIndex || 0) - 1))} title="Enviar para trás">
-                            <ChevronDown className="w-4 h-4" />
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => updateElementProperty(selectedElementData.id, 'zIndex', (selectedElementData.zIndex || 0) + 1)} title="Trazer para frente">
-                            <ChevronUp className="w-4 h-4" />
-                          </Button>
+                      ) : (
+                        <div className="text-center text-muted-foreground">
+                          <Palette className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>Selecione um elemento para editar suas propriedades</p>
                         </div>
-                      </div>
-
-                      <div className="pt-4">
-                        <Button variant="destructive" size="sm" onClick={handleDeleteSelectedElement} className="w-full">
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Excluir Elemento
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center text-muted-foreground">
-                      <Palette className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>Selecione um elemento para editar suas propriedades</p>
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </div>
-          </ResizablePanel>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              </ResizablePanel>
+            </>
+          )}
         </ResizablePanelGroup>
       </div>
 
