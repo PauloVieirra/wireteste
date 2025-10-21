@@ -69,6 +69,7 @@ export default function App() {
 
   const offlineToastShownRef = useRef(false); // Novo ref para controlar o toast offline
   const unsavedChangesToastShownRef = useRef(false); // Novo ref para controlar o toast de alterações não salvas
+  const prevOnlineStatusRef = useRef(isOnline);
 
   // --- DATA FETCHING AND OFFLINE PERSISTENCE ---
   const fetchAllData = async (currentUser: User | null) => {
@@ -252,20 +253,25 @@ export default function App() {
     }
 
     const handleUserSession = async (sessionUser: any) => {
-        showLoading("Verificando sessão de usuário..."); // Ativar loading
-        // Busca a role do users_profile, ou usa 'user' como padrão se não encontrada
-        const { data: userProfileData, error: userProfileError } = await supabase
-            .from('users_profile')
-            .select('role')
-            .eq('id', sessionUser.id)
-            .single();
+        showLoading("Verificando sessão de usuário...");
+        let role = 'user'; // Default role
 
-        const role = userProfileData?.role || 'user';
+        if (isOnline) {
+            const { data: userProfileData } = await supabase
+                .from('users_profile')
+                .select('role')
+                .eq('id', sessionUser.id)
+                .single();
+            role = userProfileData?.role || 'user';
+        } else {
+            // If offline, the sessionUser is from localforage and should have the role
+            role = sessionUser.role || 'user';
+        }
 
         const appUser: User = {
             id: sessionUser.id,
             email: sessionUser.email || '',
-            name: sessionUser.user_metadata.name || 'User',
+            name: sessionUser.user_metadata?.name || sessionUser.name || 'User', // Handle both session and local user objects
             plan: 'pro',
             projectsCreated: 0,
             reportsGenerated: 0,
@@ -273,30 +279,46 @@ export default function App() {
         };
         setUser(appUser);
 
-        // Persiste o ID do usuário para o hook de notificação
+        // Persist user data for offline access
+        if (isOnline) { // Only save user to localforage if we know they are valid
+          await localforage.setItem('user', appUser);
+        }
         await localforage.setItem('userId', appUser.id);
 
-        await fetchAllData(appUser); // Chamar fetchAllData para todos os usuários
+        await fetchAllData(appUser);
 
-        // Redireciona com base na role
         if (appUser.role === 'admin') {
           setCurrentView('projects');
-        } else if (appUser.role === 'user') { // Assumindo 'user' como o role de testador
-              setIsTesterProfileIncomplete(false); // Manter como false, já que não é obrigatório
-              setCurrentView('user-home'); // Página inicial do testador (caixa de entrada)
+        } else if (appUser.role === 'user') {
+              setIsTesterProfileIncomplete(false);
+              setCurrentView('user-home');
         } else {
-          setCurrentView('projects'); // Fallback para outros roles
+          setCurrentView('projects');
         }
-        hideLoading(); // Desativar loading
+        hideLoading();
     };
 
     const checkSession = async () => {
       showLoading("Verificando sessão...");
       try {
+        // If offline, try to load from local storage first.
+        if (!isOnline) {
+          const localUser = await localforage.getItem<User>('user');
+          if (localUser) {
+            console.log("Offline: loaded user from localforage", localUser);
+            await handleUserSession(localUser);
+          } else {
+            // No local user and offline, can't do anything.
+            setUser(null);
+            navigateTo('projects');
+          }
+          return; // End execution here if offline
+        }
+
+        // If online, proceed with Supabase auth check.
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
           console.error("Erro ao obter sessão:", error);
-          // Se houver um erro, talvez o token esteja corrompido, então deslogue.
           await supabase.auth.signOut();
           setUser(null);
           navigateTo('projects');
@@ -304,14 +326,19 @@ export default function App() {
         }
 
         if (session?.user) {
-          // Força a atualização da sessão para garantir que o token JWT é válido
           const { error: refreshError } = await supabase.auth.refreshSession();
           if (refreshError) {
-            console.error('Falha ao atualizar a sessão:', refreshError);
-            // Se a atualização falhar, o usuário precisa logar novamente.
-            await supabase.auth.signOut();
-            setUser(null);
-            navigateTo('projects');
+            console.error('Falha ao atualizar a sessão (online):', refreshError);
+            // This could be a network blip or a real auth error.
+            // Instead of signing out, let's try loading local user as a fallback.
+            const localUser = await localforage.getItem<User>('user');
+            if (localUser) {
+              await handleUserSession(localUser);
+            } else {
+              await supabase.auth.signOut();
+              setUser(null);
+              navigateTo('projects');
+            }
             return;
           }
           await handleUserSession(session.user);
@@ -322,7 +349,7 @@ export default function App() {
         }
       } catch (e) {
         console.error("Uma exceção ocorreu ao verificar a sessão:", e);
-        // Em caso de exceção, deslogar para evitar um estado inconsistente.
+        // Generic catch-all, sign out to be safe.
         await supabase.auth.signOut();
         setUser(null);
         navigateTo('projects');
@@ -361,14 +388,24 @@ export default function App() {
   }, [currentView, projectsWithData, selectedProjectIdForDashboard]);
 
   useEffect(() => {
-    if (user && isOnline && hasUnsavedChanges && !unsavedChangesToastShownRef.current) {
-      showToast("Você está online e tem alterações locais não salvas. Clique em 'Atualizar e Salvar o trabalho' para sincronizar.", "warning");
-      unsavedChangesToastShownRef.current = true; // Marca o toast como exibido
+    const wasOnline = prevOnlineStatusRef.current;
+
+    // Check for transition from offline to online
+    if (!wasOnline && isOnline && user && hasUnsavedChanges) {
+      showToast("Você está online novamente. Sincronizando alterações...", "info");
+      syncLocalChanges();
+    } else if (user && isOnline && hasUnsavedChanges && !unsavedChangesToastShownRef.current) {
+      // If already online and has unsaved changes, show the warning toast
+      showToast("Você tem alterações locais não salvas. Clique em 'Sincronizar' para salvar.", "warning");
+      unsavedChangesToastShownRef.current = true;
     } else if (!isOnline) {
-      // Se ficar offline, resetar o ref de toast de alterações não salvas para que ele possa aparecer novamente ao voltar online
+      // When going offline, reset the toast ref so it can be shown again when back online
       unsavedChangesToastShownRef.current = false;
     }
-  }, [isOnline, hasUnsavedChanges, user, showToast]);
+
+    // Update the ref with the current status for the next render
+    prevOnlineStatusRef.current = isOnline;
+  }, [isOnline, hasUnsavedChanges, user, showToast, syncLocalChanges]);
 
   // ... other handlers ...
   const handleGoToProfile = () => {

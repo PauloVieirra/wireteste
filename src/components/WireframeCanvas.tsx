@@ -6,6 +6,7 @@ import { iconIndex } from './icon-index'; // Import iconIndex
 import { iconPaths } from './icon-paths.js'; // Import generated icon paths
 import { KonvaSvg } from './KonvaSvg';
 import KonvaIconRenderer from './KonvaIconRenderer';
+import { FloatingToolbar } from './FloatingToolbar';
 
 // --- DATA STRUCTURES (from WireframeEditor) ---
 interface WireframeElement {

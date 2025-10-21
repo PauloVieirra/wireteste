@@ -32,6 +32,7 @@ import { WireframeCanvas } from './WireframeCanvas'; // Keep WireframeCanvas imp
 import GridOverlay from './GridOverlay';
 import { Signal } from './Signal';
 import { convertFigmaToWireframes, FigmaFile } from '../utils/figmaImporter';
+import { FloatingToolbar } from './FloatingToolbar';
 import { Flex, Spin } from 'antd';
 
 const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
@@ -1419,7 +1420,8 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
 
           <ResizableHandle />
 
-          <ResizablePanel defaultSize={64} minSize={40}>
+          <ResizablePanel defaultSize={64} minSize={40} className="relative">
+            <FloatingToolbar />
             <div
               ref={canvasContainerRef}
               tabIndex={0}
