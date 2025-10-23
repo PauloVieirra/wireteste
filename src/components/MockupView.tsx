@@ -43,24 +43,25 @@ const getCanvasDimensions = (project: Project, wireframeId: string) => {
 };
 
 // --- INTERACTIVE WIREFRAME COMPONENT ---
-const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, scale }: { project: Project, wireframe: Wireframe, dimensions: {width: number, height: number}, onNavigate: (id: string | null) => void, scale: number }) => {
+const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, zoom, onPointerEnter, onPointerLeave }: { project: Project, wireframe: Wireframe, dimensions: {width: number, height: number}, onNavigate: (id: string | null) => void, zoom: number, onPointerEnter: () => void, onPointerLeave: () => void }) => {
   const stageRef = useRef<Konva.Stage>(null);
 
   return (
     <div style={{
-        width: dimensions.width,
-        height: dimensions.height,
-        transform: `scale(${scale})`,
+        width: dimensions.width * zoom,
+        height: dimensions.height * zoom,
         transformOrigin: 'top left',
-    }} 
-    className="select-none bg-white" 
+    }}
+    className="select-none bg-white"
     onPointerDown={(e) => e.stopPropagation()}
+    onPointerEnter={onPointerEnter}
+    onPointerLeave={onPointerLeave}
     >
         <WireframeCanvas
             ref={stageRef}
             project={project}
             wireframe={wireframe}
-            zoom={1} // Zoom is handled by the CSS scale now
+            zoom={zoom} // Pass zoom to Konva
             selectedElementId={null}
             onSelectElement={onNavigate}
             onUpdateElement={() => {}}
@@ -88,13 +89,13 @@ function LaptopModel({ project, activeWireframeId }: MockupViewProps) {
 }
 
 // --- MACBOOK MODEL SCENE ---
-function MacbookModel({ project, activeWireframeId }: MockupViewProps) {
+function MacbookModel({ project, activeWireframeId, activeMockup, scrollableContainerRef, setIsScreenHovered }: MockupViewProps & { scrollableContainerRef: React.RefObject<HTMLDivElement>, setIsScreenHovered: (hovered: boolean) => void }) {
   const group = useRef<THREE.Group>(null!)
   const { nodes, materials } = useGLTF('/mac-draco.glb')
 
   const [currentWireframeId, setCurrentWireframeId] = useState(activeWireframeId);
-  useEffect(() => { 
-    setCurrentWireframeId(activeWireframeId); 
+  useEffect(() => {
+    setCurrentWireframeId(activeWireframeId);
   }, [activeWireframeId]);
 
   const handleNavigate = (elementId: string | null) => {
@@ -110,77 +111,106 @@ function MacbookModel({ project, activeWireframeId }: MockupViewProps) {
   const canvasDimensions = getCanvasDimensions(project, currentWireframeId);
 
   const fixedWidth = 340;
-  const fixedHeight = 218;
-  const scale = canvasDimensions.width > 0 ? fixedWidth / canvasDimensions.width : 1;
+  const fixedHeight = 224;
+  const qualityFactor = 2;
+  const renderWidth = fixedWidth * qualityFactor;
 
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime()
-    if(group.current) {
-        group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, Math.cos(t / 2) / 20 + 0.25, 0.1)
-        group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, Math.sin(t / 4) / 20, 0.1)
-        group.current.rotation.z = THREE.MathUtils.lerp(group.current.rotation.z, Math.sin(t / 8) / 20, 0.1)
-        group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, (-2 + Math.sin(t / 2)) / 2, 0.1)
-    }
-  })
+  const scale = canvasDimensions.width > 0 ? renderWidth / canvasDimensions.width : 1;
 
   return (
-    <group ref={group} dispose={null}> 
-      <group rotation-x={-0.425} position={[0, -0.04, 0.41]}>
+    <group ref={group} dispose={null}>
+      <group rotation-x={-0.425} position={[0, -0.04, 1.5]}>
         <group position={[0, 2.96, -0.13]} rotation={[Math.PI / 2, 0, 0]}>
           <mesh castShadow receiveShadow material={materials.aluminium} geometry={nodes['Cube008'].geometry} />
           <mesh castShadow receiveShadow material={materials['matte.001']} geometry={nodes['Cube008_1'].geometry} />
           <mesh castShadow receiveShadow geometry={nodes['Cube008_2'].geometry}>
-            <Html rotation-x={-Math.PI / 2} position={[0.04, 0.05, -0.40]} transform occlude>
+            <Html rotation-x={-Math.PI / 2} position={[0.04, 0.08, -0.24]} transform occlude>
                 <style>{`
-                    .scroller::-webkit-scrollbar { width: 5px; }
+                    .scroller::-webkit-scrollbar { width: 4px; }
                     .scroller::-webkit-scrollbar-track { background: transparent; }
-                    .scroller::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 10px; }
-                    .scroller::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.5); }
+                    .scroller::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 8px; }
+                    .scroller::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
                 `}</style>
-                <div 
+                <div
+                    ref={scrollableContainerRef}
                     className="scroller"
                     style={{
                         width: `${fixedWidth}px`,
                         height: `${fixedHeight}px`,
                         overflowY: 'auto',
                         overflowX: 'hidden',
-                        borderRadius: '2px',
+                        borderRadius: '1px',
                     }}
                 >
-                  {currentWireframe && (
-                        <InteractiveWireframe project={project} wireframe={currentWireframe} dimensions={canvasDimensions} onNavigate={handleNavigate} scale={scale} />
-                    )}
+                  <div style={{ transform: `scale(${1 / qualityFactor})`, transformOrigin: 'top left', width: `${renderWidth}px` }}>
+                    {currentWireframe && (
+                          <InteractiveWireframe
+                              project={project}
+                              wireframe={currentWireframe}
+                              dimensions={canvasDimensions}
+                              onNavigate={handleNavigate}
+                              zoom={scale}
+                              onPointerEnter={() => setIsScreenHovered(true)}
+                              onPointerLeave={() => setIsScreenHovered(false)}
+                          />
+                      )}
+                  </div>
                 </div>
             </Html>
           </mesh>
         </group>
       </group>
-      <mesh castShadow receiveShadow material={materials.keys} geometry={nodes.keyboard.geometry} position={[1.79, 0, 3.45]} />
-      <group position={[0, -0.1, 3.39]}>
-        <mesh castShadow receiveShadow material={materials.aluminium} geometry={nodes['Cube002'].geometry} />
-        <mesh castShadow receiveShadow material={materials.trackpad} geometry={nodes['Cube002_1'].geometry} />
-      </group>
-      <mesh castShadow receiveShadow material={materials.touchbar} geometry={nodes.touchbar.geometry} position={[0, -0.03, 1.2]} />
     </group>
   )
 }
 
 // --- MAIN VIEW COMPONENT ---
 const MockupView = ({ project, activeWireframeId, activeMockup }: MockupViewProps) => {
+  const [isScreenHovered, setIsScreenHovered] = useState(false);
+  const scrollableContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (isScreenHovered && scrollableContainerRef.current) {
+      const container = scrollableContainerRef.current;
+      const { scrollHeight, clientHeight } = container;
+      
+      const newScrollTop = container.scrollTop + e.deltaY;
+
+      // Clamp the new scroll top value
+      const clampedScrollTop = Math.max(0, Math.min(newScrollTop, scrollHeight - clientHeight));
+
+      container.scrollTop = clampedScrollTop;
+    }
+  };
+
   return (
-    <div style={{ width: '100%', height: '100%', background: '#303030' }}>
-      <Canvas shadows camera={{ position: [0, 0, 12], fov: 50 }}>
+    <div style={{ width: '100%', height: '100%', background: '#303030' }} onWheel={handleWheel}>
+      <Canvas shadows camera={{ position: [0, 0, 18], fov: 50 }} frameloop="demand">
         <Suspense fallback={null}>
           {activeMockup === 'laptop' && <LaptopModel project={project} activeWireframeId={activeWireframeId} activeMockup={activeMockup} />}
           {activeMockup === 'macbook' && (
-            <group rotation={[0, Math.PI, 0]} position={[0, 1, 0]}>
-                <MacbookModel project={project} activeWireframeId={activeWireframeId} activeMockup={activeMockup} />
+            <group position={[0, 1.5, 0]} scale={1.5}>
+                <MacbookModel
+                    project={project}
+                    activeWireframeId={activeWireframeId}
+                    activeMockup={activeMockup}
+                    scrollableContainerRef={scrollableContainerRef}
+                    setIsScreenHovered={setIsScreenHovered}
+                />
             </group>
           )}
           <Environment preset="city" />
         </Suspense>
-        <ContactShadows position={[0, -4.5, 0]} scale={20} blur={2} far={4.5} />
-        <OrbitControls enablePan={true} enableZoom={true} minDistance={3} maxDistance={15} minPolarAngle={Math.PI / 3} maxPolarAngle={Math.PI / 1.8} />
+        <ContactShadows position={[0, -1, 0]} scale={20} blur={2} far={4.5} />
+        <OrbitControls
+            target={[0, 5.5, 0]}
+            enablePan={true}
+            enableZoom={!isScreenHovered}
+            minDistance={12}
+            maxDistance={12}
+            minPolarAngle={Math.PI / 3}
+            maxPolarAngle={Math.PI / 1.8}
+        />
       </Canvas>
     </div>
   );

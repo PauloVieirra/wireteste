@@ -583,11 +583,13 @@ export const WireframeCanvas = React.forwardRef(({
   );
 
   return (
-    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center', border: '1px solid #ccc', boxShadow: '0 0 10px rgba(0,0,0,0.1)' }}>
+    <div style={{ border: '1px solid #ccc', boxShadow: '0 0 10px rgba(0,0,0,0.1)' }}>
       <Stage
         ref={ref as React.RefObject<Konva.Stage>}
         width={canvasDimensions.width}
         height={canvasDimensions.height}
+        scaleX={zoom}
+        scaleY={zoom}
         className="bg-white"
         onMouseDown={onCanvasMouseDown}
       >
