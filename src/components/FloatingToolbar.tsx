@@ -41,10 +41,6 @@ export const FloatingToolbar = ({ style, activeMockup, onSelectMockup }: Floatin
                 </p>
               </div>
               <div className="grid gap-2">
-                <Button variant="outline" className="justify-start" onClick={() => { onSelectMockup('laptop'); setIs3DMenuOpen(false); }}>
-                  <Laptop className="w-4 h-4 mr-2" />
-                  Laptop Padrão
-                </Button>
                 <Button variant="outline" className="justify-start" onClick={() => { onSelectMockup('macbook'); setIs3DMenuOpen(false); }}>
                   <Smartphone className="w-4 h-4 mr-2" />
                   MacBook

@@ -1,5 +1,5 @@
 import React, { Suspense, useState, useRef, useEffect, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, useGLTF, Html, Environment, ContactShadows } from '@react-three/drei';
 import { WireframeCanvas } from './WireframeCanvas';
 import * as THREE from 'three';
@@ -79,19 +79,17 @@ const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, zoom
   )
 }
 
-// --- LAPTOP MODEL SCENE (Still needs console log from user to fix) ---
-function LaptopModel({ project, activeWireframeId }: MockupViewProps) {
-  const { scene, nodes, materials } = useGLTF('/laptop.glb');
-  useEffect(() => {
-    console.log('--- Laptop Model Debug ---\nNodes:', nodes, '\nMaterials:', materials);
-  }, [scene, nodes, materials]);
-  return <primitive object={scene} />;
-}
-
 // --- MACBOOK MODEL SCENE ---
 function MacbookModel({ project, activeWireframeId, activeMockup, scrollableContainerRef, setIsScreenHovered }: MockupViewProps & { scrollableContainerRef: React.RefObject<HTMLDivElement>, setIsScreenHovered: (hovered: boolean) => void }) {
   const group = useRef<THREE.Group>(null!)
   const { nodes, materials } = useGLTF('/mac-draco.glb')
+  const { invalidate } = useThree();
+
+  // Force a re-render to fix initial HTML position with frameloop="demand"
+  useEffect(() => {
+    const timer = setTimeout(() => invalidate(), 100);
+    return () => clearTimeout(timer);
+  }, [invalidate]);
 
   const [currentWireframeId, setCurrentWireframeId] = useState(activeWireframeId);
   useEffect(() => {
@@ -187,7 +185,6 @@ const MockupView = ({ project, activeWireframeId, activeMockup }: MockupViewProp
     <div style={{ width: '100%', height: '100%', background: '#303030' }} onWheel={handleWheel}>
       <Canvas shadows camera={{ position: [0, 0, 18], fov: 50 }} frameloop="demand">
         <Suspense fallback={null}>
-          {activeMockup === 'laptop' && <LaptopModel project={project} activeWireframeId={activeWireframeId} activeMockup={activeMockup} />}
           {activeMockup === 'macbook' && (
             <group position={[0, 1.5, 0]} scale={1.5}>
                 <MacbookModel
