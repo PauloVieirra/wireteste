@@ -90,9 +90,11 @@ interface TestSession {
   completed: boolean;
   duration?: number;
   clicksPerWireframe?: { [wireframeId: string]: number };
+  timePerWireframe?: { [wireframeId: string]: number };
   correctClicks?: number;
   incorrectClicks?: number;
   idleTime?: number;
+  percent?: { screen: string, time: number }[];
 }
 
 interface UserTestInterfaceProps {
@@ -131,8 +133,32 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
   const [answers, setAnswers] = useState<{ [questionId: string]: any }>({});
   const { showLoading, hideLoading } = useLoading();
 
+  const [timePerWireframe, setTimePerWireframe] = useState<{ [key: string]: number }>({});
+  const [currentScreenStartTime, setCurrentScreenStartTime] = useState<number>(0);
+  const previousWireframeIdRef = useRef<string | null>(null);
+
   const stageRef = useRef<Konva.Stage>(null);
   const zoom = 1;
+
+  useEffect(() => {
+    if (phase === 'testing') {
+      setCurrentScreenStartTime(Date.now());
+      previousWireframeIdRef.current = project?.wireframes?.[0]?.id || null;
+    }
+  }, [phase, project]);
+
+  useEffect(() => {
+    if (phase === 'testing' && previousWireframeIdRef.current && previousWireframeIdRef.current !== currentWireframeId) {
+      const timeSpent = Date.now() - currentScreenStartTime;
+      const prevId = previousWireframeIdRef.current;
+      setTimePerWireframe(prev => ({
+        ...prev,
+        [prevId]: (prev[prevId] || 0) + timeSpent
+      }));
+      setCurrentScreenStartTime(Date.now());
+    }
+    previousWireframeIdRef.current = currentWireframeId;
+  }, [currentWireframeId, phase, currentScreenStartTime]);
 
   const handleAnswerChange = (questionId: string, answer: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
@@ -339,6 +365,13 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
       return;
     }
 
+    // Record time for the very last screen before finishing
+    const finalTimeSpent = Date.now() - currentScreenStartTime;
+    const finalTimePerWireframe = {
+      ...timePerWireframe,
+      [currentWireframeId]: (timePerWireframe[currentWireframeId] || 0) + finalTimeSpent
+    };
+
     const endTime = new Date().toISOString();
     const duration = new Date(endTime).getTime() - new Date(startTime).getTime();
 
@@ -373,11 +406,14 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
       completed: true,
       duration,
       clicksPerWireframe,
+      timePerWireframe: finalTimePerWireframe,
       correctClicks,
       incorrectClicks,
-      idleTime
+      idleTime,
+      percent: Object.entries(finalTimePerWireframe).map(([screen, time]) => ({ screen, time }))
     };
     
+    console.log('[Debug] completeTest: Enviando dados da sessão:', session); // Novo log
     await onFinishTest(session);
   };
 

@@ -103,9 +103,17 @@ export const getTestSessionsByUser = async (user: User) => {
     userName: s.user_name,
     userEmail: s.user_email,
     clicks: s.clicks,
+    answers: s.answers,
     startTime: s.start_time,
     endTime: s.end_time,
     completed: s.completed,
+    duration: s.duration,
+    clicksPerWireframe: s.clicks_per_wireframe,
+    timePerWireframe: s.time_per_wireframe,
+    correctClicks: s.correct_clicks,
+    incorrectClicks: s.incorrect_clicks,
+    idleTime: s.idle_time,
+    percent: s.percent,
   }));
 };
 
@@ -157,55 +165,53 @@ export const deleteSurveyById = async (surveyId: string) => {
 };
 
 export const saveTestSession = async (sessionData: any) => {
-    // Tenta obter o usuário atualmente logado
-    const { data: { user } } = await supabase.auth.getUser();
+    console.log("[Debug] supabaseClient.ts -> saveTestSession: Iniciando salvamento.", { sessionData });
 
-    const testId = sessionData.testId; // Corrigido de test_id
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError) {
+        console.error("[Debug] supabaseClient.ts -> saveTestSession: Erro ao buscar usuário.", userError);
+    }
+    console.log("[Debug] supabaseClient.ts -> saveTestSession: Usuário obtido:", user);
+
+    const testId = sessionData.testId;
     if (!testId) {
+        console.error("[Debug] supabaseClient.ts -> saveTestSession: ID do teste não encontrado na sessionData.");
         throw new Error('O ID do teste é necessário para salvar uma sessão.');
     }
 
-    // Se um usuário estiver logado, verifique se ele é o criador do teste
-    // if (user) {
-    //     const { data: test, error: testError } = await supabase
-    //         .from('tests')
-    //         .select('admin_id')
-    //         .eq('id', testId)
-    //         .single();
-
-    //     if (testError && testError.code !== 'PGRST116') { // Ignora erros de "não encontrado" para testes públicos
-    //         console.error('Erro ao buscar o teste para verificação:', testError);
-    //     }
-
-    //     if (test && user.id === test.admin_id) {
-    //         console.log('O criador do teste está verificando. A sessão não será salva.');
-    //         return { status: 'skipped', message: 'O criador do teste não pode salvar uma sessão.' };
-    //     }
-    // }
-
-    // Prepara os dados para inserção, convertendo camelCase para snake_case para o BD
     const dataToInsert = {
         id: sessionData.id,
         test_id: sessionData.testId,
-        user_id: user?.id, // Save the user ID if available
+        user_id: user ? user.id : null, // Explicitly set to null if no user
         user_name: sessionData.userName,
         user_email: sessionData.userEmail,
         start_time: sessionData.startTime,
         end_time: sessionData.endTime,
         completed: sessionData.completed,
         clicks: sessionData.clicks || null,
+        duration: sessionData.duration,
+        clicks_per_wireframe: sessionData.clicksPerWireframe,
+        time_per_wireframe: sessionData.timePerWireframe,
+        correct_clicks: sessionData.correctClicks,
+        incorrect_clicks: sessionData.incorrectClicks,
+        idle_time: sessionData.idleTime,
+        answers: sessionData.answers,
+        percent: sessionData.percent,
     };
 
-    // Para usuários não logados ou usuários que não são o criador, salvar a sessão de teste
+    console.log("[Debug] supabaseClient.ts -> saveTestSession: Dados a serem inseridos:", dataToInsert);
+
     const { data, error } = await supabase.from('test_sessions').insert([dataToInsert]);
+
     if (error) {
-        console.error('Error saving test session:', error);
+        console.error('[Debug] supabaseClient.ts -> saveTestSession: Erro do Supabase ao inserir!', error);
         throw error;
     }
+
+    console.log("[Debug] supabaseClient.ts -> saveTestSession: Inserção no Supabase bem-sucedida. Resposta:", data);
     return data;
 };
-
-
 
 /**
  * Busca um projeto pelo seu ID.

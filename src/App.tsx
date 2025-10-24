@@ -496,14 +496,14 @@ export default function App() {
   // Função para finalizar um teste
   const handleFinishTest = async (session: any) => {
     showLoading("Finalizando seu teste..."); // Ativar loading
-    console.log("DEBUG handleFinishTest: Iniciando a finalização do teste.", session);
+    console.log("[Debug] App.tsx -> handleFinishTest: Recebida a sessão do teste.", session);
 
     try {
       // Salvar a sessão de teste
-      console.log("DEBUG handleFinishTest: Tentando salvar a sessão de teste.", session);
+      console.log("[Debug] App.tsx -> handleFinishTest: Chamando saveTestSession...");
       await saveTestSession(session);
+      console.log("[Debug] App.tsx -> handleFinishTest: saveTestSession completado com sucesso.");
       setTestSessions(prev => [...prev, session]);
-      console.log("DEBUG handleFinishTest: Sessão de teste salva com sucesso.");
 
       if (user) { // All user-specific logic should be inside this block
         const test = usabilityTests.find(t => t.id === session.testId);
@@ -572,7 +572,7 @@ export default function App() {
       }
 
     } catch (error) {
-      console.error("DEBUG handleFinishTest: Erro fatal durante a finalização do teste:", error); // Log mais explícito
+      console.error("[Debug] App.tsx -> handleFinishTest: Erro capturado!", error);
       showToast('Erro ao finalizar teste.', 'error');
       hideLoading(); // Hide loading on error
       if (user) {

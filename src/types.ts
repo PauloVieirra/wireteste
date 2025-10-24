@@ -1,4 +1,3 @@
-
 export interface DisplayItem {
   id: string;
   type: 'wireframe' | 'mapa_calor';
@@ -59,13 +58,28 @@ export interface UsabilityTest {
     updated_at: string;
 }
 
+export interface Click {
+  x: number;
+  y: number;
+  wireframeId: string;
+  timestamp: string;
+  correct: boolean;
+}
+
 export interface TestSession {
   id: string;
   testId: string;
   userName: string;
   userEmail: string;
-  clicks: any[];
+  clicks: Click[];
+  answers?: { [questionId: string]: any };
   startTime: string;
   endTime?: string;
   completed: boolean;
+  duration?: number;
+  clicksPerWireframe?: { [wireframeId: string]: number };
+  timePerWireframe?: { [wireframeId: string]: number };
+  correctClicks?: number;
+  incorrectClicks?: number;
+  idleTime?: number;
 }

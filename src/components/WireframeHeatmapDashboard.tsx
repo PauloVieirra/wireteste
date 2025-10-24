@@ -20,7 +20,8 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  Legend
 } from 'recharts';
 import { 
   Download, 
@@ -188,14 +189,26 @@ export function WireframeHeatmapDashboard({ project, sessions }: WireframeHeatma
       const correctClicks = sessionsForWireframeAnalytics.reduce((acc, session) => 
         acc + session.clicks.filter(c => c.wireframeId === wireframe.id && c.correct).length, 0
       );
-      const visitsOnWireframe = sessionsForWireframeAnalytics.filter(s => s.clicks.some(c => c.wireframeId === wireframe.id)).length;
-      
+      const visitsOnWireframe = new Set(
+        sessionsForWireframeAnalytics
+          .filter(s => s.percent && s.percent.some(p => p.screen === wireframe.id))
+          .map(s => s.id)
+      ).size;
+
+      const totalTimeOnWireframe = sessionsForWireframeAnalytics.reduce((acc, session) => {
+        const timeEntry = session.percent?.find(p => p.screen === wireframe.id);
+        return acc + (timeEntry?.time || 0);
+      }, 0);
+
+      const avgTimeOnWireframe = visitsOnWireframe > 0 ? (totalTimeOnWireframe / visitsOnWireframe) / 1000 : 0;
+
       return { 
         name: wireframe.name, 
         totalClicks: wireframeClicks, 
-        correctClicks, 
+        correctClicks,
         accuracy: wireframeClicks > 0 ? (correctClicks / wireframeClicks) * 100 : 0, 
-        visitCount: visitsOnWireframe 
+        visitCount: visitsOnWireframe, 
+        avgTime: avgTimeOnWireframe
       };
     });
 
@@ -406,15 +419,33 @@ export function WireframeHeatmapDashboard({ project, sessions }: WireframeHeatma
             </TabsList>
             <TabsContent value="analytics" className="space-y-4">
                 <Card>
-                  <CardHeader><CardTitle className="text-lg">Performance por Tela</CardTitle></CardHeader>
+                  <CardHeader><CardTitle className="text-lg">Performance por Tela (Cliques)</CardTitle></CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={analytics.wireframeAnalytics}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis yAxisId="left" orientation="left" stroke="#8884d8" />
+                        <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
+                        <Tooltip />
+                        <Legend />
+                        <Bar yAxisId="left" dataKey="totalClicks" fill="#8884d8" name="Total de Cliques" />
+                        <Bar yAxisId="right" dataKey="accuracy" fill="#82ca9d" name="Precisão (%)" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle className="text-lg">Tempo Médio por Tela (Segundos)</CardTitle></CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={analytics.wireframeAnalytics}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis />
-                        <Tooltip />
-                        <Bar dataKey="totalClicks" fill="#8884d8" name="Total de Cliques" />
+                        <Tooltip formatter={(value: number) => `${value.toFixed(1)}s`} />
+                        <Legend />
+                        <Bar dataKey="avgTime" fill="#ffc658" name="Tempo Médio (s)" />
                       </BarChart>
                     </ResponsiveContainer>
                   </CardContent>
