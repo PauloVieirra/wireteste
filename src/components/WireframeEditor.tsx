@@ -1715,9 +1715,30 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           </div>
                         </div>
                       ) : (
-                        <div className="text-center text-muted-foreground">
-                          <Palette className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                          <p>Selecione um elemento para editar suas propriedades</p>
+                        <div className="space-y-4">
+                          <div>
+                            <Label className="text-sm font-medium">Dimensões da Tela</Label>
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              <div>
+                                <Label htmlFor="wireframe-width">Largura</Label>
+                                <Input
+                                  id="wireframe-width"
+                                  type="number"
+                                  value={canvasDimensions.width}
+                                  onChange={(e) => handleUpdateWireframe(activeWireframe, { width: parseInt(e.target.value, 10) || 0 })}
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="wireframe-height">Altura</Label>
+                                <Input
+                                  id="wireframe-height"
+                                  type="number"
+                                  value={canvasDimensions.height}
+                                  onChange={(e) => handleUpdateWireframe(activeWireframe, { height: parseInt(e.target.value, 10) || 0 })}
+                                />
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </TabsContent>

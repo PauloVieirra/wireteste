@@ -317,15 +317,20 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       break;
     case 'icon':
       if (element.iconComponent || (element.iconId && svgUrl)) { // Figma icon or imported icon
-        component = (
+        component = (  
+       
           <Group {...commonProps} ref={shapeRef}>
+          
             <KonvaSvg
               src={element.iconComponent || svgUrl}
               width={element.width}
               height={element.height}
               fillColor={element.textColor || 'black'}
+              
             />
+           
           </Group>
+        
         );
       } else if (element.iconName) { // Library icon
         component = (
