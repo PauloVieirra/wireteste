@@ -35,6 +35,7 @@ import { convertFigmaToWireframes, FigmaFile } from '../utils/figmaImporter';
 import { FloatingToolbar } from './FloatingToolbar';
 import MockupView from './MockupView';
 import { Flex, Spin } from 'antd';
+import { useWindowHeight } from '../hooks/useWindowHeight';
 
 const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
@@ -221,6 +222,15 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const [activeMockup, setActiveMockup] = useState<string | null>(null);
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
+  const windowHeight = useWindowHeight();
+  const topBarRef = useRef<HTMLDivElement>(null);
+  const [topBarHeight, setTopBarHeight] = useState(0);
+
+  useEffect(() => {
+    if (topBarRef.current) {
+      setTopBarHeight(topBarRef.current.offsetHeight);
+    }
+  }, [topBarRef.current]);
 
 
   const stageRef = useRef<Konva.Stage>(null);
@@ -881,20 +891,17 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       
       setSelectedElement(null);
       const container = canvasContainerRef.current;
-      container.style.cursor = 'grabbing';
       container.style.userSelect = 'none';
 
       const startX = e.evt.pageX - container.scrollLeft;
       const startY = e.evt.pageY - container.scrollTop;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        moveEvent.preventDefault();
         container.scrollLeft = moveEvent.pageX - startX;
         container.scrollTop = moveEvent.pageY - startY;
       };
 
       const handleMouseUp = () => {
-        container.style.cursor = 'grab';
         container.style.userSelect = 'auto';
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
@@ -1315,7 +1322,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
+      <div ref={topBarRef} className="border-b border-border bg-card px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onBack}>
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1410,7 +1417,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
           {activeMockup === null && !isLeftSidebarCollapsed && (
             <>
               <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-                <div className="h-full border-r border-border bg-card p-0">
+                <div className="border-r border-border bg-card p-0" style={{ height: windowHeight - topBarHeight, overflowY: 'auto' }}>
                   <ElementTree
                     wireframes={internalProject.wireframes}
                     activeWireframe={activeWireframe}
@@ -1475,8 +1482,8 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                 onMouseLeave={() => (isPointerInsideRef.current = false)}
                 onFocus={() => (isPointerInsideRef.current = true)}
                 onBlur={() => (isPointerInsideRef.current = false)}
-                style={{ touchAction: 'none', cursor: 'grab', paddingTop: '50px', paddingBottom:'50px', overflow: 'auto' }}
-                className="h-full w-full bg-gray-50"
+                style={{ height: windowHeight - topBarHeight, overflowY: 'auto', touchAction: 'none', cursor: 'default', paddingTop: '50px', paddingBottom:'50px' }}
+                className="w-full bg-gray-50"
                 onDragOver={handleCanvasDragOver}
                 onDragLeave={handleCanvasDragLeave}
                 onDrop={handleCanvasDrop}
@@ -1529,8 +1536,8 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
             <>
               <ResizableHandle />
               <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
-                <div className="h-full border-l border-border bg-card">
-                  <Tabs value={sidebarTab} onValueChange={(value) => setSidebarTab(value as 'components' | 'properties')} className="h-full flex flex-col">
+                <div className="border-l border-border bg-card">
+                  <Tabs value={sidebarTab} onValueChange={(value) => setSidebarTab(value as 'components' | 'properties')} className="h-full flex flex-col" style={{ height: windowHeight - topBarHeight }}>
                     <TabsList className="w-full flex-shrink-0">
                       <TabsTrigger value="components" className="flex-1">Componentes</TabsTrigger>
                       <TabsTrigger value="properties" className="flex-1">Propriedades</TabsTrigger>
