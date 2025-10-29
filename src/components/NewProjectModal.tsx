@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Card } from './ui/card';
-import { Edit } from 'lucide-react';
+import { Edit, ClipboardList } from 'lucide-react';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -22,9 +22,9 @@ export function NewProjectModal({ isOpen, onClose, onSelectType }: NewProjectMod
     className="rounded-lg p-6 shadow-xl"
   >
     <DialogHeader>
-      <DialogTitle className="text-2xl font-bold text-gray-800">Novo Projeto de Wireframe</DialogTitle>
+      <DialogTitle className="text-2xl font-bold text-gray-800">Novo Projeto</DialogTitle>
       <DialogDescription className="text-gray-500">
-        Comece a criar seu wireframe com um novo projeto.
+        Comece com um novo projeto.
       </DialogDescription>
     </DialogHeader>
 
@@ -56,6 +56,34 @@ export function NewProjectModal({ isOpen, onClose, onSelectType }: NewProjectMod
             </h3>
             <p className="text-sm text-gray-500 leading-relaxed">
               Crie e edite wireframes interativos do zero.
+            </p>
+          </div>
+        </Card>
+
+        <Card
+          key="survey"
+          onClick={() => onSelectType('survey')}
+          className={`group flex flex-col h-full p-6 rounded-lg border transition-all relative overflow-hidden cursor-pointer bg-white hover:border-green-500 hover:shadow-lg`}
+        >
+          {/* ícone com detalhe de cor */}
+          <div
+            className="mb-4 flex items-center justify-center rounded-full flex-shrink-0"
+            style={{
+              width: 52,
+              height: 52,
+              backgroundColor: '#e6fff0',
+              borderRadius: 9999,
+            }}
+          >
+            <ClipboardList className="w-8 h-8 text-green-500" />
+          </div>
+          {/* título e descrição*/}
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold mb-1 transition-colors group-hover:text-green-600">
+              Pesquisa com Usuário
+            </h3>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Crie e gerencie pesquisas para coletar feedback de usuários.
             </p>
           </div>
         </Card>

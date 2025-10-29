@@ -1,14 +1,24 @@
 export interface DisplayItem {
   id: string;
-  type: 'wireframe' | 'mapa_calor';
+  type: 'wireframe' | 'mapa_calor' | 'survey';
   name: string;
   createdAt: string;
   resolution?: 'mobile' | 'tablet' | 'desktop';
   wireframe_count?: number;
+  question_count?: number;
   projectId?: string;
   tests: UsabilityTest[];
   hasTestData?: boolean;
   original: any;
+}
+
+export interface Survey {
+  id: string;
+  name: string;
+  type: 'qualitativa' | 'quantitativa' | 'satisfacao';
+  questions: any[];
+  createdAt: string;
+  updated_at: string;
 }
 
 export interface Project {

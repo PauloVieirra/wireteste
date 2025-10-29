@@ -118,8 +118,27 @@ export const getTestSessionsByUser = async (user: User) => {
 };
 
 export const getSurveysByUser = async (user: User) => {
-    // Implement this function based on your database schema
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('pesquisa')
+    .select('id, nome, tipo, perguntas, criado_em, atualizado_em')
+    .eq('user_id', user.id)
+    .order('criado_em', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching surveys:', error);
     return [];
+  }
+
+  return data.map(survey => ({
+    id: survey.id,
+    name: survey.nome,
+    type: survey.tipo,
+    questions: survey.perguntas,
+    createdAt: survey.criado_em,
+    updated_at: survey.atualizado_em,
+  }));
 };
 
 export const saveTest = async (testData: any) => {
@@ -132,13 +151,54 @@ export const saveTest = async (testData: any) => {
 };
 
 export const saveSurvey = async (surveyData: any) => {
-    // Implement this function based on your database schema
-    return null;
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        throw new Error('User not authenticated. Cannot save survey.');
+    }
+
+    const dataToUpsert = {
+        id: surveyData.id,
+        user_id: user.id,
+        nome: surveyData.name,
+        tipo: surveyData.type,
+        perguntas: surveyData.questions,
+    };
+
+    const { data, error } = await supabase
+        .from('pesquisa')
+        .upsert(dataToUpsert, { onConflict: 'id' })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error saving survey:', error);
+        throw error;
+    }
+
+    return data;
 };
 
 export const getSurveyById = async (surveyId: string) => {
-    // Implement this function based on your database schema
-    return null;
+    const { data, error } = await supabase
+        .from('pesquisa')
+        .select('*')
+        .eq('id', surveyId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching survey:', error);
+        throw error;
+    }
+
+    return {
+        id: data.id,
+        name: data.nome,
+        type: data.tipo,
+        questions: data.perguntas,
+        createdAt: data.criado_em,
+        updated_at: data.atualizado_em,
+    };
 };
 
 export const deleteProjectById = async (projectId: string) => {
@@ -160,8 +220,12 @@ export const deleteTestById = async (testId: string) => {
 };
 
 export const deleteSurveyById = async (surveyId: string) => {
-    // Implement this function based on your database schema
-    return null;
+    const { data, error } = await supabase.from('pesquisa').delete().match({ id: surveyId });
+    if (error) {
+        console.error('Error deleting survey:', error);
+        throw error;
+    }
+    return data;
 };
 
 export const saveTestSession = async (sessionData: any) => {

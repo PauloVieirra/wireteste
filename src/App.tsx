@@ -5,6 +5,7 @@ import { TestCreator } from './components/TestCreator';
 import { Dashboard } from './components/Dashboard';
 import { UserSessionDetail } from './components/UserSessionDetail';
 import { UserTestInterface } from './components/UserTestInterface';
+import { UserSurveyInterface } from './components/UserSurveyInterface';
 import { LandingPage } from './components/LandingPage';
 import { UserHomePage } from './components/UserHomePage';
 import { AuthenticatedLayout } from './components/AuthenticatedLayout';
@@ -17,12 +18,14 @@ import { getProjectsByUser, getTestsByUser, getSurveysByUser, getTestSessionsByU
 import { supabase } from './utils/supabase/client';
 import { NewProjectModal } from './components/NewProjectModal';
 import { CreateWireframeDialog } from './components/CreateWireframeDialog';
+import { CreateSurveyPage } from './components/CreateSurveyPage';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './components/ui/alert-dialog';
 import { CreateUsabilityTest } from './components/CreateUsabilityTest';
 import ChooseTestType from './components/ConfigureTest/ChooseTestType';
 import ProfileForm from './components/UserProfile/ProfileForm';
 import CreateTestGroup from './components/ConfigureTest/CreateTestGroup';
 import { ConfigureTestModal } from './components/ConfigureTest/ConfigureTestModal';
+import { SendSurveyModal } from './components/SendSurveyModal';
 import TesterSignupPage from './components/TesterSignupPage';
 import IncompleteProfileNotification from './components/IncompleteProfileNotification';
 import localforage from 'localforage'; // Import localforage
@@ -32,9 +35,9 @@ import { Loader2 } from 'lucide-react'; // Importar Loader2 para o estado de car
 import { useLoading } from './components/GlobalLoading'; // Importar useLoading
 
 import { ProjectsDataProvider, useProjectsData } from './components/ProjectsDataProvider';
-import type { DisplayItem, Project, User, Wireframe, Test, UsabilityTest, TestSession } from './types';
+import type { DisplayItem, Project, User, Wireframe, Test, UsabilityTest, TestSession, Survey } from './types';
 
-type View = 'projects' | 'wireframe-editor' | 'test-creator' | 'dashboard' | 'user-test' | 'user-home' | 'session-detail' | 'create-usability-test' | 'profile' | 'signup-tester' | 'manage-test';
+type View = 'projects' | 'wireframe-editor' | 'test-creator' | 'dashboard' | 'user-test' | 'user-survey' | 'user-home' | 'session-detail' | 'create-usability-test' | 'profile' | 'signup-tester' | 'manage-test' | 'create-survey' | 'survey-editor';
 
 export default function App() {
   const { showToast } = useToast();
@@ -44,8 +47,11 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tests, setTests] = useState<Test[]>([]); // Old hotspot tests
   const [usabilityTests, setUsabilityTests] = useState<UsabilityTest[]>([]); // New heatmap/eye/face tests
+  const [surveys, setSurveys] = useState<Survey[]>([]);
   const [testSessions, setTestSessions] = useState<TestSession[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedSurvey, setSelectedSurvey] = useState<Survey | null>(null);
+  const [selectedSurveyToTake, setSelectedSurveyToTake] = useState<Survey | null>(null);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [selectedSession, setSelectedSession] = useState<TestSession | null>(null);
   const [selectedProjectIdForDashboard, setSelectedProjectIdForDashboard] = useState<string | null>(null);
@@ -55,6 +61,8 @@ export default function App() {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isCreateWireframeDialogOpen, setIsCreateWireframeDialogOpen] = useState(false);
   const [isConfigureTestModalOpen, setIsConfigureTestModalOpen] = useState(false);
+  const [isSendSurveyModalOpen, setIsSendSurveyModalOpen] = useState(false);
+  const [selectedSurveyToSend, setSelectedSurveyToSend] = useState<Survey | null>(null);
   const [currentTestId, setCurrentTestId] = useState<string | null>(null);
   const [activeTest, setActiveTest] = useState<any>(null); // Old hotspot test
   const [refreshUserInboxKey, setRefreshUserInboxKey] = useState(0); // Novo estado para forçar recarga da caixa de entrada
@@ -82,20 +90,23 @@ export default function App() {
         offlineToastShownRef.current = false;
         unsavedChangesToastShownRef.current = false; // Resetar este também
         
-        const [dbProjects, dbTests, dbTestSessions] = await Promise.all([
+        const [dbProjects, dbTests, dbTestSessions, dbSurveys] = await Promise.all([
           getProjectsByUser(currentUser),
           getTestsByUser(currentUser),
-          getTestSessionsByUser(currentUser)
+          getTestSessionsByUser(currentUser),
+          getSurveysByUser(currentUser)
         ]);
         console.log("Fetched Test Sessions (Online): ", dbTestSessions);
         
         await localforage.setItem('projects', dbProjects);
         await localforage.setItem('usabilityTests', dbTests);
         await localforage.setItem('testSessions', dbTestSessions);
+        await localforage.setItem('surveys', dbSurveys);
 
         setProjects(dbProjects);
         setUsabilityTests(dbTests);
         setTestSessions(dbTestSessions);
+        setSurveys(dbSurveys);
         showToast("Dados sincronizados com o servidor.", "success");
       } else {
         // Carrega do localforage se offline
@@ -106,10 +117,12 @@ export default function App() {
         const localProjects = await localforage.getItem<Project[]>('projects') || [];
         const localUsabilityTests = await localforage.getItem<UsabilityTest[]>('usabilityTests') || [];
         const localTestSessions = await localforage.getItem<TestSession[]>('testSessions') || [];
+        const localSurveys = await localforage.getItem<Survey[]>('surveys') || [];
 
         setProjects(localProjects);
         setUsabilityTests(localUsabilityTests);
         setTestSessions(localTestSessions);
+        setSurveys(localSurveys);
       }
     } catch (error) {
       console.error("Failed to sync or load data:", error);
@@ -121,9 +134,11 @@ export default function App() {
       const localProjects = await localforage.getItem<Project[]>('projects') || [];
       const localUsabilityTests = await localforage.getItem<UsabilityTest[]>('usabilityTests') || [];
       const localTestSessions = await localforage.getItem<TestSession[]>('testSessions') || [];
+      const localSurveys = await localforage.getItem<Survey[]>('surveys') || [];
       setProjects(localProjects);
       setUsabilityTests(localUsabilityTests);
       setTestSessions(localTestSessions);
+      setSurveys(localSurveys);
       if (localProjects.length > 0) {
         // showToast("Dados locais carregados devido a erro na sincronização.", "warning"); // Este toast agora está coberto pelo acima
       }
@@ -202,8 +217,12 @@ export default function App() {
         projectId: p.id, tests: associatedTests, hasTestData, original: p,
       };
     });
-    return [...wireframeItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [projects, usabilityTests, testSessions]);
+    const surveyItems: DisplayItem[] = surveys.map(s => ({
+      id: s.id, type: 'survey', name: s.name, createdAt: s.createdAt,
+      question_count: s.questions.length, tests: [], original: s,
+    }));
+    return [...wireframeItems, ...surveyItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [projects, surveys, usabilityTests, testSessions]);
 
   const selectedItemForDashboard = useMemo(() => {
     if (!selectedProjectIdForDashboard) return null;
@@ -237,14 +256,31 @@ export default function App() {
     const viewParam = params.get('view');
     const testIdFromUrl = params.get('testId');
 
+    const surveyIdFromUrl = params.get('surveyId');
+
     const handleExternalTest = async (testId: string) => {
       showLoading("Iniciando teste..."); // Ativar loading
       await handleStartUserTest(testId);
       hideLoading(); // Desativar loading
     };
 
+    const handleExternalSurvey = async (surveyId: string) => {
+      showLoading("Iniciando pesquisa..."); // Ativar loading
+      const survey = await getSurveyById(surveyId);
+      if (survey) {
+        setSelectedSurveyToTake(survey);
+        navigateTo('user-survey');
+      }
+      hideLoading(); // Desativar loading
+    };
+
     if (viewParam === 'user-test' && testIdFromUrl) {
       handleExternalTest(testIdFromUrl);
+      return; // Stop further execution to avoid auth checks
+    }
+
+    if (viewParam === 'user-survey' && surveyIdFromUrl) {
+      handleExternalSurvey(surveyIdFromUrl);
       return; // Stop further execution to avoid auth checks
     }
 
@@ -648,6 +684,8 @@ export default function App() {
               setIsNewProjectModalOpen(false);
               if (type === 'wireframe') {
                 setIsCreateWireframeDialogOpen(true);
+              } else if (type === 'survey') {
+                navigateTo('create-survey');
               }
             }}
           />
@@ -697,6 +735,12 @@ export default function App() {
             isOpen={isConfigureTestModalOpen}
             onClose={() => setIsConfigureTestModalOpen(false)}
             selectedProject={selectedProject}
+          />
+
+          <SendSurveyModal
+            isOpen={isSendSurveyModalOpen}
+            onClose={() => setIsSendSurveyModalOpen(false)}
+            survey={selectedSurveyToSend}
           />
 
           <AlertDialog open={isExitConfirmOpen} onOpenChange={setIsExitConfirmOpen}>
@@ -774,7 +818,9 @@ export default function App() {
                     showLoading("Deletando projeto..."); // Ativar loading
                     if (itemType === 'wireframe') {
                       await deleteProjectById(itemId);
-                    } // Adicionar lógica para outros tipos se necessário
+                    } else if (itemType === 'survey') {
+                      await deleteSurveyById(itemId);
+                    }
                     await fetchAllData(user); // Re-busca dados do DB e atualiza localforage
                     showToast('Projeto excluído com sucesso!', 'success');
                   } catch (error) {
@@ -789,6 +835,14 @@ export default function App() {
                   navigateTo('create-usability-test'); // Usar navigateTo
                 }}
                 onConfigureTest={handleConfigureTest}
+                onEditSurvey={(survey) => {
+                  setSelectedSurvey(survey);
+                  navigateTo('survey-editor');
+                }}
+                onSendSurvey={(survey) => {
+                  setSelectedSurveyToSend(survey);
+                  setIsSendSurveyModalOpen(true);
+                }}
                 // onManageTest={handleManageTest} // Removido
               />
             )}
@@ -807,6 +861,17 @@ export default function App() {
                 onFinishTest={handleFinishTest}
                 onCancel={goBack}
                 isDemoMode={isDemoMode}
+              />
+            )}
+
+            {currentView === 'user-survey' && selectedSurveyToTake && (
+              <UserSurveyInterface 
+                survey={selectedSurveyToTake}
+                onFinishSurvey={(answers) => {
+                  console.log('Survey answers:', answers);
+                  showToast('Pesquisa enviada com sucesso!', 'success');
+                  navigateTo('projects');
+                }}
               />
             )}
 
@@ -838,6 +903,14 @@ export default function App() {
 
             {currentView === 'profile' && (
               <ProfileForm />
+            )}
+
+            {currentView === 'create-survey' && (
+              <CreateSurveyPage onBack={goBack} />
+            )}
+
+            {currentView === 'survey-editor' && selectedSurvey && (
+              <CreateSurveyPage onBack={goBack} survey={selectedSurvey} />
             )}
 
 

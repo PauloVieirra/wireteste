@@ -102,6 +102,7 @@ interface UserTestInterfaceProps {
   project?: Project | null;
   onFinishTest: (session: TestSession) => void;
   onCancel: () => void;
+  onReject: () => void; // Nova prop para rejeitar o teste
   isDemoMode?: boolean;
 }
 
@@ -121,7 +122,7 @@ const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' 
   return fontSizes[res][level] || fontSizes[res].p;
 };
 
-export function UserTestInterface({ test, project, onFinishTest, onCancel, isDemoMode = false }: UserTestInterfaceProps) {
+export function UserTestInterface({ test, project, onFinishTest, onCancel, onReject, isDemoMode = false }: UserTestInterfaceProps) {
   const [phase, setPhase] = useState<TestPhase>('intro');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -167,8 +168,6 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
   const handleSimNaoChange = (question: any, answer: 'sim' | 'nao') => {
     if (question.eliminatoria && answer !== question.resposta_esperada) {
       setPhase('disqualified');
-    } else {
-      handleAnswerChange(question.id, answer);
     }
   };
 
@@ -234,14 +233,14 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
                       ))}
                       {question.tipo === 'sim_nao' && (
                         <div className="flex space-x-4">
-                          <Button 
+                          <Button
                             variant={answers[question.id] === 'sim' ? 'default' : 'outline'}
                             onClick={() => handleSimNaoChange(question, 'sim')}
                             className="flex-1 text-lg py-6"
                           >
                             Sim
                           </Button>
-                          <Button 
+                          <Button
                             variant={answers[question.id] === 'nao' ? 'destructive' : 'outline'}
                             onClick={() => handleSimNaoChange(question, 'nao')}
                             className="flex-1 text-lg py-6"
@@ -388,7 +387,7 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
       for (let i = 1; i < clicks.length; i++) {
         idleTime += new Date(clicks[i].timestamp).getTime() - new Date(clicks[i-1].timestamp).getTime();
       }
-      idleTime = duration - idleTime; 
+      idleTime = duration - idleTime;
     } else if (clicks.length === 1) {
       idleTime = duration - (new Date(clicks[0].timestamp).getTime() - new Date(startTime).getTime());
     } else {
@@ -475,22 +474,31 @@ export function UserTestInterface({ test, project, onFinishTest, onCancel, isDem
               </ul>
             </div>
 
-            <Button 
-              onClick={handleStartTest} 
-              className="w-full"
-              disabled={!userName.trim() || !userEmail.trim()}
-            >
-              Continuar
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={handleStartTest} 
+                className="flex-1"
+                disabled={!userName.trim() || !userEmail.trim()}
+              >
+                Continuar
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={onReject} 
+                className="flex-1"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Recusar
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  if (phase === 'consent') {
-    return (
+  if (phase === 'consent') {    return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <Card className="w-full max-w-lg">
           <CardHeader>

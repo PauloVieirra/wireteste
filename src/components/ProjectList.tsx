@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Plus, Edit3, Play, BarChart3, Monitor, Tablet, Smartphone, MoreVertical, Share2, Trash2 } from 'lucide-react';
+import { Plus, Edit3, Play, BarChart3, Monitor, Tablet, Smartphone, MoreVertical, Share2, Trash2, FileText, Send } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { useToast } from './ToastProvider';
 import { Badge } from './ui/badge';
-import type { DisplayItem, UsabilityTest } from '../App';
+import type { DisplayItem, UsabilityTest } from '../types';
 import { TestSelectionModal } from './TestSelectionModal';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface User {
   id: string;
@@ -23,6 +25,8 @@ interface ProjectListProps {
   user: User;
   onOpenNewProjectModal: () => void;
   onEditProject: (project: any) => void;
+  onEditSurvey: (survey: any) => void;
+  onSendSurvey: (survey: any) => void;
   onCreateTest: (project: any) => void;
   onConfigureTest: (project: any) => void;
   onViewDashboard: (item: DisplayItem) => void;
@@ -33,6 +37,7 @@ interface ProjectListProps {
 const typeDisplay: { [key: string]: { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } } = {
   wireframe: { label: 'Telas', variant: 'secondary' },
   mapa_calor: { label: 'Mapa de Calor', variant: 'default' },
+  survey: { label: 'Pesquisa', variant: 'outline' },
 };
 
 export function ProjectList({ 
@@ -40,6 +45,8 @@ export function ProjectList({
   user,
   onOpenNewProjectModal,
   onEditProject, 
+  onEditSurvey,
+  onSendSurvey,
   onCreateTest, 
   onConfigureTest, 
   onViewDashboard,
@@ -49,14 +56,25 @@ export function ProjectList({
   const { showToast } = useToast();
   const [isTestSelectionModalOpen, setIsTestSelectionModalOpen] = useState(false);
   const [selectedItemForTest, setSelectedItemForTest] = useState<DisplayItem | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+
+  const filteredItems = useMemo(() => {
+    return items
+      .filter(item => {
+        if (filter === 'all') return true;
+        return item.type === filter;
+      })
+      .filter(item => 
+        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [items, filter, searchQuery]);
 
   const handleShare = (tests: UsabilityTest[]) => {
     if (tests.length === 0) {
       showToast('Nenhum teste associado a este projeto para compartilhar.', 'error');
       return;
     }
-    // For simplicity, sharing the link of the first test.
-    // A better approach might be to let the user choose which test to share.
     const shareUrl = `${window.location.origin}/?view=user-test&testId=${tests[0].id}`;
     navigator.clipboard.writeText(shareUrl).then(() => {
       showToast('Link para o teste copiado para a área de transferência!', 'success');
@@ -99,7 +117,7 @@ export function ProjectList({
     }
   };
 
-  if (items.length === 0) {
+  if (items.length === 0 && filteredItems.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md">
@@ -129,6 +147,22 @@ export function ProjectList({
           </p>
         </div>
         <div className="flex gap-2">
+          <Input 
+            placeholder="Buscar projetos..."
+            className="w-64"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Filtrar por tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="wireframe">Telas</SelectItem>
+              <SelectItem value="survey">Pesquisas</SelectItem>
+            </SelectContent>
+          </Select>
           <Button onClick={onOpenNewProjectModal}>
             <Plus className="w-4 h-4 mr-2" />
             Novo projeto
@@ -137,7 +171,7 @@ export function ProjectList({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {items.map((item) => (
+        {filteredItems.map((item) => (
           <Card key={item.id} className="hover:shadow-md transition-shadow flex flex-col">
             <CardHeader>
               <div className="flex items-start justify-between">
@@ -191,7 +225,7 @@ export function ProjectList({
                 <div> 
                 <div>Criado em: {new Date(item.createdAt).toLocaleDateString('pt-BR')}</div>
                 {item.type === 'wireframe' && <div>Wireframes: {item.wireframe_count}</div>}
-                
+                {item.type === 'survey' && <div>Perguntas: {item.question_count}</div>}
                </div>
                  <Button variant="outline" onClick={() => handleShare(item.tests)} disabled={item.tests.length === 0}>
                         <Share2 className="w-4 h-4 mr-2" />
@@ -225,6 +259,22 @@ export function ProjectList({
                     </div>
                   </>
                 )}
+                {item.type === 'survey' && (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => { /* Implementar visualização de resultados da pesquisa */ }}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      Ver Resultados
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => onEditSurvey(item.original)}>
+                      <Edit3 className="w-4 h-4 mr-2" />
+                      Editar Pesquisa
+                    </Button>
+                    <Button variant="default" size="sm" onClick={() => onSendSurvey(item.original)}>
+                      <Send className="w-4 h-4 mr-2" />
+                      Enviar Pesquisa
+                    </Button>
+                  </>
+                )}
                 {item.type === 'mapa_calor' && (
                   <>
                     <Button variant="outline" size="sm" onClick={() => onViewDashboard(item)} className="w-full justify-start">
@@ -243,6 +293,11 @@ export function ProjectList({
           </Card>
         ))}
       </div>
+      {filteredItems.length === 0 && items.length > 0 && (
+        <div className="text-center text-muted-foreground mt-12">
+          <p>Nenhum projeto encontrado com os filtros atuais.</p>
+        </div>
+      )}
       {selectedItemForTest && (
         <TestSelectionModal
           isOpen={isTestSelectionModalOpen}
