@@ -1449,7 +1449,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                 onMouseLeave={() => (isPointerInsideRef.current = false)}
                 onFocus={() => (isPointerInsideRef.current = true)}
                 onBlur={() => (isPointerInsideRef.current = false)}
-                style={{ touchAction: 'none', cursor: 'grab', paddingTop: '50px', overflow: 'auto' }}
+                style={{ touchAction: 'none', cursor: 'grab', paddingTop: '50px', paddingBottom:'50px', overflow: 'auto' }}
                 className="h-full w-full bg-gray-50"
                 onDragOver={handleCanvasDragOver}
                 onDragLeave={handleCanvasDragLeave}
