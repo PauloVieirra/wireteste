@@ -460,6 +460,13 @@ export default function App() {
 
   const handleStartUserTest = async (testId: string, isDemo: boolean = false) => {
     if (!testId) return;
+
+    if (isDemo) {
+      const url = `${window.location.origin}/?view=user-test&testId=${testId}`;
+      window.open(url, '_blank');
+      return;
+    }
+
     setIsDemoMode(isDemo);
     showLoading("Iniciando teste..."); // Ativar loading
     try {
@@ -735,6 +742,7 @@ export default function App() {
             isOpen={isConfigureTestModalOpen}
             onClose={() => setIsConfigureTestModalOpen(false)}
             selectedProject={selectedProject}
+            onStartUserTest={handleStartUserTest}
           />
 
           <SendSurveyModal

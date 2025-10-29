@@ -247,16 +247,11 @@ export function ProjectList({
                       <BarChart3 className="w-4 h-4 mr-2" />
                       Criar Teste de Usabilidade
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => onConfigureTest(item.original)} className="w-full justify-start">
-                      <BarChart3 className="w-4 h-4 mr-2" />
-                      Configurar Testes
+                    <Button variant="default" size="sm" onClick={() => onConfigureTest(item.original)}>
+                      <Send className="w-4 h-4 mr-2" />
+                      Enviar testes
                     </Button>
-                    <div className="flex gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => handleTestButtonClick(item)} className="w-full justify-start" disabled={item.tests.length === 0}>
-                        <Play className="w-4 h-4 mr-2" />
-                        Testar
-                      </Button>
-                    </div>
+
                   </>
                 )}
                 {item.type === 'survey' && (

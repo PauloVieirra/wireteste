@@ -6,7 +6,7 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Checkbox } from './ui/checkbox';
 import { Textarea } from './ui/textarea';
-import { PartyPopper, ArrowRight } from 'lucide-react';
+import { PartyPopper, ArrowRight, X } from 'lucide-react';
 import { WireframeCanvas } from './WireframeCanvas';
 import Konva from 'konva';
 import { useLoading } from './GlobalLoading';

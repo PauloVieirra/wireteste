@@ -11,6 +11,7 @@ interface ConfigureTestModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedProject: any; // Adjust with proper type
+  onStartUserTest: (testId: string, testType: 'mapa_calor' | 'eye_tracking' | 'face_tracking', isDemo?: boolean) => void;
 }
 
 interface Profile {
@@ -19,7 +20,7 @@ interface Profile {
     email: string;
 }
 
-export function ConfigureTestModal({ isOpen, onClose, selectedProject }: ConfigureTestModalProps) {
+export function ConfigureTestModal({ isOpen, onClose, selectedProject, onStartUserTest }: ConfigureTestModalProps) {
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [audience, setAudience] = useState<'real' | 'ai' | null>(null);
@@ -222,15 +223,19 @@ export function ConfigureTestModal({ isOpen, onClose, selectedProject }: Configu
             </div>
         );
     case 4:
+        const selectedTest = availableUsabilityTests.find(t => t.id === selectedUsabilityTestId);
         return (
             <div>
                 <DialogTitle className="text-2xl text-center">Confirmar Envio</DialogTitle>
                 <DialogDescription className="text-center mb-6">
-                    Você está prestes a enviar o teste <span className="font-semibold">{availableUsabilityTests.find(t => t.id === selectedUsabilityTestId)?.name}</span> para <span className="font-semibold">{foundTesters.length}</span> testadores.
+                    Você está prestes a enviar o teste <span className="font-semibold">{selectedTest?.name}</span> para <span className="font-semibold">{foundTesters.length}</span> testadores.
                 </DialogDescription>
                 <div className="text-center">
                     <Send className="w-16 h-16 mx-auto text-primary"/>
                     <p className="mt-4 text-muted-foreground">Após o envio, os convites aparecerão na caixa de entrada de cada testador.</p>
+                </div>
+                <div className="mt-6 text-center">
+                    <Button variant="outline" onClick={() => onStartUserTest(selectedUsabilityTestId, selectedTest?.type, true)}>Visualizar Teste</Button>
                 </div>
             </div>
         );
