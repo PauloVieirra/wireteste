@@ -65,7 +65,9 @@ import {
   Star, // Added Star for default icon rendering
   Check,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 import Frame from './Frame';
@@ -217,6 +219,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'Atualizado' | 'Atualizar' | 'Salvando...' | 'Verificando...' | 'Erro ao salvar'>('Atualizado');
   const [activeMockup, setActiveMockup] = useState<string | null>(null);
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
 
 
   const stageRef = useRef<Konva.Stage>(null);
@@ -1401,9 +1405,9 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <ResizablePanelGroup direction="horizontal">
-          {activeMockup === null && (
+          {activeMockup === null && !isLeftSidebarCollapsed && (
             <>
               <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
                 <div className="h-full border-r border-border bg-card p-0">
@@ -1425,13 +1429,35 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
             </>
           )}
 
-          <ResizablePanel defaultSize={activeMockup !== null ? 100 : 64} minSize={40} className="relative">
+          <ResizablePanel defaultSize={activeMockup !== null ? 100 : (isLeftSidebarCollapsed && isRightSidebarCollapsed ? 100 : (isLeftSidebarCollapsed || isRightSidebarCollapsed ? 82 : 64))} minSize={40} className="relative">
+            {activeMockup === null && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="absolute z-10 h-16 "
+                  onClick={() => setIsLeftSidebarCollapsed(!isLeftSidebarCollapsed)}
+                  style={{ top: '42px', left:"8px", height:"48px", width:"48px" }}
+                >
+                  <ChevronLeft className={`h-4 w-4 transition-transform ${isLeftSidebarCollapsed ? 'rotate-180' : ''}`} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="absolute right-0 z-10 h-16 rounded-l-md -mr-0.5"
+                  onClick={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
+                   style={{ top: '42px', right:"8px", height:"48px", width:"48px" }}
+                >
+                  <ChevronRight className={`h-4 w-4 transition-transform ${isRightSidebarCollapsed ? 'rotate-180' : ''}`} />
+                </Button>
+              </>
+            )}
             <FloatingToolbar 
               activeMockup={activeMockup}
               onSelectMockup={setActiveMockup}
               style={{
                 left: 10,
-                top: '50%',
+                top: 'calc(50% + 48px)',
                 transform: 'translateY(-50%)'
               }}
             />
@@ -1499,7 +1525,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
             )}
           </ResizablePanel>
 
-          {activeMockup === null && (
+          {activeMockup === null && !isRightSidebarCollapsed && (
             <>
               <ResizableHandle />
               <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
