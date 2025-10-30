@@ -19,8 +19,10 @@ import { LucideIconRenderer } from './LucideIconRenderer';
 import { ElementTree } from './ElementTree';
 import { useToast } from './ToastProvider';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resizable';
+import imgplaceholder from "../assets/imame.png";
 
-const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
+
+const imagePlaceholder = imgplaceholder;
 
 const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixLib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 
@@ -490,7 +492,7 @@ export function WireframeEditorFixed({ project, onUpdateProject }: WireframeEdit
       zIndex: 0,
       borderWidth: draggedTool === 'text' ? 0 : 2,
       borderColor: '#d1d5db',
-      imageSrc: draggedTool === 'image' ? imageplaceholder : undefined,
+      imageSrc: draggedTool === 'image' ? imagePlaceholder : undefined,
       videoSrc: draggedTool === 'video' ? videoplaceholder : undefined,
       iconName: draggedTool === 'icon' ? 'Star' : undefined,
     };
@@ -682,7 +684,7 @@ export function WireframeEditorFixed({ project, onUpdateProject }: WireframeEdit
       case 'image':
         content = (
           <img 
-            src={element.imageSrc || imageplaceholder} 
+            src={element.imageSrc || imagePlaceholder} 
             alt="Placeholder" 
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             draggable={false}

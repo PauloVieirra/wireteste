@@ -36,9 +36,12 @@ import { FloatingToolbar } from './FloatingToolbar';
 import MockupView from './MockupView';
 import { Flex, Spin } from 'antd';
 import { useWindowHeight } from '../hooks/useWindowHeight';
+import imgplaceholder from "../assets/image.png";
+import mpplaceholder from "../assets/video.jpg";
 
-const imageplaceholder = "https://images.unsplash.com/photo-1714578187196-29775454aa39?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbGFjZWhvbGRlciUyMGltYWdlfGVufDF8fHx8MTc1NzgwOTUzNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
-const videoplaceholder = "https://images.unsplash.com/photo-1642726197561-ef7224c054a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMHBsYXllciUyMHRodW1ibmFpbHxlbnwxfHx8fDE3NTc3NjA2Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
+
+const imageplaceholder = imgplaceholder;
+const videoplaceholder = mpplaceholder;
 
 import {
   ArrowLeft,
@@ -1328,11 +1331,28 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
               <ArrowLeft className="w-4 h-4 mr-2" />
               Voltar
             </Button>
-            <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
+           
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}>
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <span className="text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
+          <Button variant="outline" size="sm" onClick={() => setZoom(Math.min(2, zoom + 0.25))}>
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setIsFigmaImportModalOpen(true)}>
+            Importar do Figma
+          </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadWireframe}>
+            Baixar Wireframe
+          </Button>
+           <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button variant="" size="sm">
                   <Plus className="w-4 h-4 mr-2" />
-                  Nova Tela
+                  Nova Tela 
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -1363,52 +1383,42 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                 </div>
               </DialogContent>
             </Dialog>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}>
-            <ZoomOut className="w-4 h-4" />
-          </Button>
-          <span className="text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
-          <Button variant="outline" size="sm" onClick={() => setZoom(Math.min(2, zoom + 0.25))}>
-            <ZoomIn className="w-4 h-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setIsFigmaImportModalOpen(true)}>
-            Importar do Figma
-          </Button>
-                    <Button variant="outline" size="sm" onClick={handleDownloadWireframe}>
-            Baixar Wireframe
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setIsPublishModalOpen(true)}>
-            Publicar
-          </Button>
           <div className="relative flex items-center">
-            {saveStatus !== 'Atualizado' && (
-              <Button
-                size="sm"
-                onClick={handleSaveProject}
-                disabled={saveStatus === 'Salvando...'}
-                className={`flex items-center gap-2 transition-all ${
-                  saveStatus === 'Atualizar'
-                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                    : saveStatus === 'Erro ao salvar'
-                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                    : 'bg-gray-800 hover:bg-gray-700 text-white'
-                }`}
-              >
-                {saveStatus === 'Salvando...' && <Loader2 className="w-4 h-4 animate-spin" />}
-                {saveStatus === 'Atualizar' && <Save className="w-4 h-4" />}
-                {saveStatus === 'Erro ao salvar' && <AlertCircle className="w-4 h-4" />}
-                
-                {saveStatus === 'Atualizar' ? 'Salvar' :
-                saveStatus === 'Erro ao salvar' ? 'Erro' :
-                saveStatus}
-              </Button>
-            )}
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setIsLibraryModalOpen(true)}>
-            Biblioteca
-          </Button>
+  <Button
+    size="sm"
+    onClick={handleSaveProject}
+    disabled={saveStatus === 'Salvando...'}
+    className={`flex items-center gap-2 transition-all ${
+      saveStatus === 'Atualizar'
+        ? 'bg-blue-500 hover:bg-blue-600 text-white'
+        : saveStatus === 'Salvando...'
+        ? 'bg-gray-800 hover:bg-gray-700 text-white'
+        : saveStatus === 'Erro ao salvar'
+        ? 'bg-red-500 hover:bg-red-600 text-white'
+        : saveStatus === 'Atualizado'
+        ? 'bg-green-600 hover:bg-green-700 text-white'
+        : 'bg-gray-800 hover:bg-gray-700 text-white'
+    }`}
+  >
+    {/* Ícones dinâmicos */}
+    {saveStatus === 'Salvando...' && <Loader2 className="w-4 h-4 animate-spin" />}
+    {saveStatus === 'Atualizar' && <Save className="w-4 h-4" />}
+    {saveStatus === 'Erro ao salvar' && <AlertCircle className="w-4 h-4" />}
+    {saveStatus === 'Atualizado' && <AlertCircle className="w-4 h-4" />}
+
+    {/* Texto dinâmico */}
+    {saveStatus === 'Atualizar'
+      ? 'Salvar'
+      : saveStatus === 'Salvando...'
+      ? 'Salvando...'
+      : saveStatus === 'Erro ao salvar'
+      ? 'Erro'
+      : saveStatus === 'Atualizado'
+      ? 'Atualizado'
+      : saveStatus}
+  </Button>
+</div>
+       
         </div>
       </div>
 

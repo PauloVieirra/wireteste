@@ -798,7 +798,7 @@ export function WireframeEditor({ project, onUpdateProject }: WireframeEditorPro
                     <Label className="text-sm">Telas</Label>
                     <Dialog open={isAddWireframeOpen} onOpenChange={setIsAddWireframeOpen}>
                       <DialogTrigger asChild>
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="primary">
                           <Plus className="w-4 h-4" />
                         </Button>
                       </DialogTrigger>
