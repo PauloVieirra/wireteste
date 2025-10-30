@@ -73,6 +73,7 @@ interface WireframeCanvasProps {
   project: Project;
   wireframe: Wireframe;
   zoom: number;
+  pixelRatio?: number;
   selectedElementId: string | null;
   onSelectElement: (id: string | null) => void;
   onUpdateElement: (id: string, props: Partial<WireframeElement>) => void;
@@ -96,16 +97,17 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
   const [svgUrl, setSvgUrl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (element.type === 'image' && element.imageSrc) {
+    const src = element.type === 'image' ? element.imageSrc : element.type === 'video' ? element.videoSrc : null;
+    if (src) {
       const img = new window.Image();
-      img.src = element.imageSrc;
+      img.src = src;
       img.onload = () => {
         setImage(img);
       };
     } else {
       setImage(undefined);
     }
-  }, [element.type, element.imageSrc]);
+  }, [element.type, element.imageSrc, element.videoSrc]);
 
   useEffect(() => {
     if (element.type === 'icon' && element.iconId && project.figmaFileKey && project.figmaToken) {
@@ -304,16 +306,19 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       );
       break;
     case 'video':
-      component = (
-        <Rect
-          key={element.id}
-          {...commonProps}
-          ref={shapeRef}
-          fill="#000000"
-          stroke={element.borderColor || '#d1d5db'}
-          strokeWidth={element.borderWidth || 0}
-        />
-      );
+      if (element.videoSrc && element.videoSrc.startsWith('http')) {
+        component = null; // Will be rendered as HTML video player
+      } else {
+        component = (
+          <KonvaImage
+            key={element.id}
+            {...commonProps}
+            ref={shapeRef}
+            image={image}
+            opacity={element.opacity || 1}
+          />
+        );
+      }
       break;
     case 'icon':
       if (element.iconComponent || (element.iconId && svgUrl)) { // Figma icon or imported icon
@@ -546,6 +551,7 @@ export const WireframeCanvas = React.forwardRef(({
   project,
   wireframe,
   zoom,
+  pixelRatio,
   selectedElementId,
   onSelectElement,
   onUpdateElement,
@@ -595,6 +601,7 @@ export const WireframeCanvas = React.forwardRef(({
         height={canvasDimensions.height}
         scaleX={zoom}
         scaleY={zoom}
+        pixelRatio={pixelRatio}
         className="bg-white"
         onMouseDown={onCanvasMouseDown}
       >

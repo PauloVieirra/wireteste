@@ -5,6 +5,7 @@ import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Slider } from './ui/slider';
 import { ColorPicker } from './ColorPicker';
 import { FontLevelPicker } from './FontLevelPicker';
 import { TextColorPicker } from './TextColorPicker';
@@ -104,6 +105,7 @@ interface WireframeElement {
   parentId?: string;
   name?: string;
   opacity?: number; // Adicionado para controlar a transparência da imagem
+  enhance?: number;
   // Advanced text properties
   fontSize?: number;
   fontWeight?: string | number;
@@ -674,6 +676,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       imageSrc: toolType === 'image' ? imageplaceholder : undefined,
       videoSrc: toolType === 'video' ? videoplaceholder : undefined,
       iconName: toolType === 'icon' ? 'Star' : undefined,
+      grayscale: (toolType === 'image' || toolType === 'video') ? 1 : undefined,
     };
 
     const updatedProject = {
@@ -1063,6 +1066,21 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 }, [updateElementProperties, currentWireframe, canvasDimensions]);
 
   const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && selectedElement) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const imageSrc = event.target?.result as string;
+        if (imageSrc) {
+          updateElementProperty(selectedElement, 'imageSrc', imageSrc);
+          showToast('Imagem atualizada com sucesso!', 'success');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleDownloadWireframe = async () => {
     if (!stageRef.current || !currentWireframe) {
@@ -1469,15 +1487,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                 </Button>
               </>
             )}
-            <FloatingToolbar 
-              activeMockup={activeMockup}
-              onSelectMockup={setActiveMockup}
-              style={{
-                left: 10,
-                top: 'calc(50% + 48px)',
-                transform: 'translateY(-50%)'
-              }}
-            />
+          
             {activeMockup !== null ? (
               <MockupView 
                 project={internalProject} 
@@ -1617,6 +1627,38 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           </div>
 
                           <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={internalProject.resolution} />
+
+                          {selectedElementData.type === 'image' && (
+                            <>
+                              <div>
+                                <Label htmlFor="element-image">Imagem</Label>
+                                <Input id="element-image" type="file" accept="image/*" onChange={handleImageUpload} />
+                              </div>
+                              <div>
+                                <Label>Preto e Branco</Label>
+                                <Slider
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  value={[selectedElementData.grayscale ?? 1]}
+                                  onValueChange={(value) => updateElementProperty(selectedElementData.id, 'grayscale', value[0])}
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {selectedElementData.type === 'video' && (
+                            <div>
+                              <Label>Preto e Branco</Label>
+                              <Slider
+                                min={0}
+                                max={1}
+                                step={0.1}
+                                value={[selectedElementData.grayscale ?? 1]}
+                                onValueChange={(value) => updateElementProperty(selectedElementData.id, 'grayscale', value[0])}
+                              />
+                            </div>
+                          )}
 
                           {selectedElementData.type === 'text' && (
                             <div className="pt-2">

@@ -43,7 +43,7 @@ const getCanvasDimensions = (project: Project, wireframeId: string) => {
 };
 
 // --- INTERACTIVE WIREFRAME COMPONENT ---
-const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, zoom, onPointerEnter, onPointerLeave }: { project: Project, wireframe: Wireframe, dimensions: {width: number, height: number}, onNavigate: (id: string | null) => void, zoom: number, onPointerEnter: () => void, onPointerLeave: () => void }) => {
+const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, zoom, onPointerEnter, onPointerLeave, pixelRatio }: { project: Project, wireframe: Wireframe, dimensions: {width: number, height: number}, onNavigate: (id: string | null) => void, zoom: number, onPointerEnter: () => void, onPointerLeave: () => void, pixelRatio?: number }) => {
   const stageRef = useRef<Konva.Stage>(null);
 
   return (
@@ -62,6 +62,7 @@ const InteractiveWireframe = ({ project, wireframe, dimensions, onNavigate, zoom
             project={project}
             wireframe={wireframe}
             zoom={zoom} // Pass zoom to Konva
+            pixelRatio={pixelRatio}
             selectedElementId={null}
             onSelectElement={onNavigate}
             onUpdateElement={() => {}}
@@ -108,12 +109,10 @@ function MacbookModel({ project, activeWireframeId, activeMockup, scrollableCont
   const currentWireframe = project.wireframes.find(w => w.id === currentWireframeId);
   const canvasDimensions = getCanvasDimensions(project, currentWireframeId);
 
-  const fixedWidth = 340;
-  const fixedHeight = 224;
-  const qualityFactor = 2;
-  const renderWidth = fixedWidth * qualityFactor;
+  const fixedWidth = 360;
+  const fixedHeight = 216;
 
-  const scale = canvasDimensions.width > 0 ? renderWidth / canvasDimensions.width : 1;
+  const scale = canvasDimensions.width > 0 ? fixedWidth / canvasDimensions.width : 1;
 
   return (
     <group ref={group} dispose={null}>
@@ -140,7 +139,6 @@ function MacbookModel({ project, activeWireframeId, activeMockup, scrollableCont
                         borderRadius: '1px',
                     }}
                 >
-                  <div style={{ transform: `scale(${1 / qualityFactor})`, transformOrigin: 'top left', width: `${renderWidth}px` }}>
                     {currentWireframe && (
                           <InteractiveWireframe
                               project={project}
@@ -148,11 +146,11 @@ function MacbookModel({ project, activeWireframeId, activeMockup, scrollableCont
                               dimensions={canvasDimensions}
                               onNavigate={handleNavigate}
                               zoom={scale}
+                              pixelRatio={2}
                               onPointerEnter={() => setIsScreenHovered(true)}
                               onPointerLeave={() => setIsScreenHovered(false)}
                           />
                       )}
-                  </div>
                 </div>
             </Html>
           </mesh>
