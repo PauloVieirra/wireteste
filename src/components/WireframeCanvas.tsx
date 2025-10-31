@@ -86,10 +86,11 @@ interface WireframeCanvasProps {
   onCanvasMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onElementTransformEnd: (id: string, x: number, y: number, width: number, height: number) => void;
   isReadOnly?: boolean;
+  isXRayMode?: boolean;
 }
 
 // --- SINGLE ELEMENT COMPONENT ---
-const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, wireframe, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions, draggable: draggableProp = true, isReadOnly = false }) => {
+const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project, wireframe, getFontSize, getFontFamilyCSS, getElementMinimumSize, onElementDragEnd, onElementTransformEnd, canvasDimensions, draggable: draggableProp = true, isReadOnly = false, isXRayMode = false }) => {
   const shapeRef = useRef<Konva.Node>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -137,6 +138,12 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       trRef.current.getLayer()?.batchDraw();
     }
   }, [isSelected, shapeRef.current, trRef.current]);
+
+  const xrayProps = isXRayMode ? {
+    fill: 'transparent',
+    stroke: '#0000FF', // Blue
+    strokeWidth: 1,
+  } : {};
 
   const commonProps = {
     id: element.id,
@@ -198,6 +205,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             element.borderBottomRightRadius || 0,
             element.borderBottomLeftRadius || 0,
           ]}
+          {...xrayProps}
         />
       );
       break;
@@ -217,6 +225,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                         element.borderBottomRightRadius || 0,
                         element.borderBottomLeftRadius || 0,
                     ]}
+                    {...xrayProps}
                 />
                 <Text
                     text={element.text || 'Button'}
@@ -248,6 +257,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           fill={element.backgroundColor || '#ffffff'}
           stroke={element.borderColor || '#d1d5db'}
           strokeWidth={element.borderWidth || 0}
+          {...xrayProps}
         />
       );
       break;
@@ -280,6 +290,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           key={element.id}
           ref={shapeRef}
           {...textProps}
+          {...xrayProps}
         />
       );
       break;
@@ -291,6 +302,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           ref={shapeRef}
           fill={element.textColor || 'black'}
           height={element.height || 2}
+          {...xrayProps}
         />
       );
       break;
@@ -302,6 +314,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           ref={shapeRef}
           image={image}
           opacity={element.opacity || 1}
+          {...xrayProps}
         />
       );
       break;
@@ -316,6 +329,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             ref={shapeRef}
             image={image}
             opacity={element.opacity || 1}
+            {...xrayProps}
           />
         );
       }
@@ -331,7 +345,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
               width={element.width}
               height={element.height}
               fillColor={element.textColor || 'black'}
-              
+              {...xrayProps}
             />
            
           </Group>
@@ -345,6 +359,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
               width={element.width}
               height={element.height}
               fill={element.textColor || 'black'}
+              {...xrayProps}
             />
           </Group>
         );
@@ -359,6 +374,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             fill={element.textColor || 'black'}
             align="center"
             verticalAlign="middle"
+            {...xrayProps}
           />
         );
       }
@@ -369,7 +385,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                 <Rect
                   width={element.width}
                   height={element.height}
-                  fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : (element.backgroundColor || 'transparent')}
+                  fill={isSelected ? 'rgba(173, 216, 230, 0.3)' : (element.backgroundColor || '#ffffff')}
                   stroke={isSelected ? 'lightblue' : (element.borderColor || 'transparent')}
                   strokeWidth={isSelected ? 2 : (element.borderWidth || 0)}
                   dash={isSelected ? [10, 5] : []}
@@ -379,6 +395,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                     element.borderBottomRightRadius || 0,
                     element.borderBottomLeftRadius || 0,
                   ]}
+                  {...xrayProps}
                 />
               </Group>
             );
@@ -391,6 +408,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           fill={element.backgroundColor || '#E0E0E0'}
           stroke={element.borderColor || '#212121'}
           strokeWidth={element.borderWidth ?? 1}
+          {...xrayProps}
         />
       );
       break;
@@ -564,6 +582,7 @@ export const WireframeCanvas = React.forwardRef(({
   getElementMinimumSize = () => 10,
   onCanvasMouseDown,
   isReadOnly = false,
+  isXRayMode = false,
 }, ref) => {
 
   useEffect(() => {
@@ -573,25 +592,73 @@ export const WireframeCanvas = React.forwardRef(({
     }
   }, [ref]);
 
-  const renderElement = (element: WireframeElement) => (
-    <CanvasElement
-      key={element.id}
-      element={element}
-      isSelected={element.id === selectedElementId}
-      onSelect={onSelectElement}
-      onUpdate={onUpdateElement}
-      zoom={zoom}
-      project={project}
-      wireframe={wireframe}
-      getFontSize={getFontSize}
-      getFontFamilyCSS={getFontFamilyCSS}
-      getElementMinimumSize={getElementMinimumSize}
-      onElementDragEnd={onElementDragEnd}
-      onElementTransformEnd={onElementTransformEnd}
-      canvasDimensions={canvasDimensions}
-      isReadOnly={isReadOnly}
-    />
-  );
+  const renderElementAndChildren = (element: WireframeElement, allElements: WireframeElement[]) => {
+    if (element.type === 'frame') {
+      const children = allElements.filter(el => el.parentId === element.id);
+      return (
+        <Group
+          key={element.id}
+          x={element.x}
+          y={element.y}
+          draggable={!isReadOnly}
+          onDragEnd={(e) => {
+            if (e.target === e.currentTarget) {
+              onElementDragEnd(element.id, e.currentTarget.x(), e.currentTarget.y());
+            }
+          }}
+          dragBoundFunc={(pos) => {
+            const newX = Math.max(0, Math.min(pos.x, canvasDimensions.width - element.width));
+            const newY = Math.max(0, Math.min(pos.y, canvasDimensions.height - element.height));
+            return { x: newX, y: newY };
+          }}
+        >
+          {/* Render the frame itself, but as a non-draggable part of the group */}
+          <CanvasElement
+            element={{ ...element, x: 0, y: 0 }}
+            isSelected={element.id === selectedElementId}
+            onSelect={onSelectElement}
+            onUpdate={onUpdateElement}
+            zoom={zoom}
+            project={project}
+            wireframe={wireframe}
+            getFontSize={getFontSize}
+            getFontFamilyCSS={getFontFamilyCSS}
+            getElementMinimumSize={getElementMinimumSize}
+            onElementDragEnd={onElementDragEnd}
+            onElementTransformEnd={onElementTransformEnd}
+            canvasDimensions={canvasDimensions}
+            draggable={false} // The group is draggable, not the inner element
+            isReadOnly={isReadOnly}
+            isXRayMode={isXRayMode}
+          />
+          {/* Render children recursively */}
+          {children.map(child => renderElementAndChildren(child, allElements))}
+        </Group>
+      );
+    }
+
+    // Render a single, non-frame element
+    return (
+      <CanvasElement
+        key={element.id}
+        element={element}
+        isSelected={element.id === selectedElementId}
+        onSelect={onSelectElement}
+        onUpdate={onUpdateElement}
+        zoom={zoom}
+        project={project}
+        wireframe={wireframe}
+        getFontSize={getFontSize}
+        getFontFamilyCSS={getFontFamilyCSS}
+        getElementMinimumSize={getElementMinimumSize}
+        onElementDragEnd={onElementDragEnd}
+        onElementTransformEnd={onElementTransformEnd}
+        canvasDimensions={canvasDimensions}
+        isReadOnly={isReadOnly}
+        isXRayMode={isXRayMode}
+      />
+    );
+  };
 
   return (
     <div style={{ border: '1px solid #ccc', boxShadow: '0 0 10px rgba(0,0,0,0.1)' }}>
@@ -608,47 +675,9 @@ export const WireframeCanvas = React.forwardRef(({
         <GridOverlay width={canvasDimensions.width} height={canvasDimensions.height} gridConfig={gridConfig} />
         <Layer>
           {wireframe.elements
-            .filter(el => !el.parentId)
+            .filter(el => !el.parentId) // Start with top-level elements
             .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-            .map(element => {
-              if (element.type === 'frame') {
-                const children = wireframe.elements.filter(el => el.parentId === element.id);
-                return (
-                  <Group key={element.id} x={element.x} y={element.y} draggable={!isReadOnly} onDragEnd={(e) => {
-                    if (e.target === e.currentTarget) { // Only fire if the group itself was dragged
-                      onElementDragEnd(element.id, e.currentTarget.x(), e.currentTarget.y());
-                    }
-                  }}
-                  dragBoundFunc={(pos) => {
-                    const newX = Math.max(0, Math.min(pos.x, canvasDimensions.width - element.width));
-                    const newY = Math.max(0, Math.min(pos.y, canvasDimensions.height - element.height));
-                    return { x: newX, y: newY };
-                  }}
-                  >
-                    <CanvasElement
-                      key={element.id}
-                      element={{...element, x: 0, y: 0}}
-                      isSelected={element.id === selectedElementId}
-                      onSelect={onSelectElement}
-                      onUpdate={onUpdateElement}
-                      zoom={zoom}
-                      project={project}
-                      wireframe={wireframe}
-                      getFontSize={getFontSize}
-                      getFontFamilyCSS={getFontFamilyCSS}
-                      getElementMinimumSize={getElementMinimumSize}
-                      onElementDragEnd={onElementDragEnd}
-                      onElementTransformEnd={onElementTransformEnd}
-                      canvasDimensions={canvasDimensions}
-                      draggable={false}
-                      isReadOnly={isReadOnly}
-                    />
-                    {children.map(child => renderElement(child))}
-                  </Group>
-                );
-              }
-              return renderElement(element);
-            })}
+            .map(element => renderElementAndChildren(element, wireframe.elements))}
         </Layer>
       </Stage>
     </div>
