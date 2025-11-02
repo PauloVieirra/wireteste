@@ -2191,7 +2191,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           </div>
 
                           {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
-                            <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperties(selectedElementData.id, 'backgroundColor', value)} />
+                            <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
                           )}
 
                           {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
