@@ -2207,9 +2207,13 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                               topRight={selectedElementData.borderTopRightRadius || 0}
                               bottomLeft={selectedElementData.borderBottomLeftRadius || 0}
                               bottomRight={selectedElementData.borderBottomRightRadius || 0}
-                              onChange={(corner, value) => {
-                                const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
-                                updateElementProperties(selectedElementData.id, propertyName, value);
+                              onChange={(changes) => {
+                                const propsToUpdate: Partial<WireframeElement> = {};
+                                for (const corner in changes) {
+                                  const propertyName = `border${corner.charAt(0).toUpperCase() + corner.slice(1)}Radius`;
+                                  (propsToUpdate as any)[propertyName] = changes[corner];
+                                }
+                                updateElementProperties(selectedElementData.id, propsToUpdate);
                               }}
                               elementId={selectedElementData.id}
                             />

@@ -1,10 +1,12 @@
-import React, { useState, useMemo, Suspense } from 'react'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { Label } from './ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
-import { ScrollArea } from './ui/scroll-area'
-import { iconIndex } from './icon-index'
+import React, { useState, useMemo } from 'react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger, DrawerFooter } from './ui/drawer';
+import { ScrollArea } from './ui/scroll-area';
+// @ts-ignore
+import { iconPaths } from './icon-paths.js';
+import UIIconRenderer from './UIIconRenderer';
 
 const categoryKeywords: { [key: string]: string[] } = {
   navigation: ['arrow', 'chevron', 'house', 'door', 'sign', 'map', 'geo', 'compass'],
@@ -17,82 +19,80 @@ const categoryKeywords: { [key: string]: string[] } = {
   organization: ['calendar', 'clock', 'bookmark', 'flag', 'paperclip', 'file', 'folder', 'list', 'grid', 'layout'],
   shapes: ['square', 'circle', 'triangle', 'hexagon', 'diamond', 'star'],
   brands: ['facebook', 'twitter', 'instagram', 'linkedin', 'github', 'google', 'microsoft', 'apple', 'whatsapp', 'youtube'],
-}
+};
 
 const getCategorizedIcons = () => {
-  const categorized: { [key: string]: { name: string; icon: React.LazyExoticComponent<React.ComponentType<any>> }[] } = {
+  const categorized: { [key: string]: string[] } = {
     navigation: [], social: [], media: [], actions: [], system: [], status: [], business: [], organization: [], shapes: [], brands: [], other: [],
-  }
+  };
 
-  const iconNames = Object.keys(iconIndex)
+  const iconNames = Object.keys(iconPaths);
 
   iconNames.forEach(iconName => {
-    let category = 'other'
+    let category = 'other';
     for (const cat in categoryKeywords) {
       if (categoryKeywords[cat].some(keyword => iconName.includes(keyword))) {
-        category = cat
-        break
+        category = cat;
+        break;
       }
     }
-    const IconComponent = iconIndex[iconName]
-    categorized[category].push({ name: iconName, icon: IconComponent })
-  })
+    categorized[category].push(iconName);
+  });
 
-  return categorized
-}
+  return categorized;
+};
 
 interface IconLibraryProps {
-  onSelectIcon: (iconName: string, IconComponent: React.ComponentType<any>) => void
+  onSelectIcon: (iconName: string) => void;
 }
 
 export function IconLibrary({ onSelectIcon }: IconLibraryProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
-  const [iconsToShow, setIconsToShow] = useState(20) // Estado para controlar a quantidade de ícones a serem exibidos
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const iconsPerPage = 40;
 
-  const iconLibrary = useMemo(() => getCategorizedIcons(), [])
+  const iconLibrary = useMemo(() => getCategorizedIcons(), []);
 
-  // Resetar iconsToShow quando a categoria ou termo de busca mudar
   React.useEffect(() => {
-    setIconsToShow(20)
-  }, [selectedCategory, searchTerm])
+    setCurrentPage(1);
+  }, [selectedCategory, searchTerm]);
 
   const getFilteredIcons = () => {
-    let allIcons: Array<{ name: string; icon: React.ComponentType<any>; category: string }> = []
+    let allIcons: Array<{ name: string; category: string }> = [];
 
     Object.entries(iconLibrary).forEach(([category, icons]) => {
-      icons.forEach(icon => {
-        allIcons.push({ ...icon, category })
-      })
-    })
+      icons.forEach(iconName => {
+        allIcons.push({ name: iconName, category });
+      });
+    });
 
     if (selectedCategory !== 'all') {
-      allIcons = allIcons.filter(icon => icon.category === selectedCategory)
+      allIcons = allIcons.filter(icon => icon.category === selectedCategory);
     }
 
     if (searchTerm) {
       allIcons = allIcons.filter(icon =>
         icon.name.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+      );
     }
 
-    const totalFilteredIcons = allIcons.length
-    const iconsToDisplay = allIcons.slice(0, iconsToShow)
+    const totalFilteredIcons = allIcons.length;
+    const totalPages = Math.ceil(totalFilteredIcons / iconsPerPage);
+    const startIndex = (currentPage - 1) * iconsPerPage;
+    const endIndex = startIndex + iconsPerPage;
+    const iconsToDisplay = allIcons.slice(startIndex, endIndex);
 
-    return { iconsToDisplay, totalFilteredIcons }
-  }
+    return { iconsToDisplay, totalFilteredIcons, totalPages };
+  };
 
-  const handleLoadMore = () => {
-    setIconsToShow(prev => prev + 10)
-  }
-
-  const handleSelectIcon = (iconName: string, IconComponent: React.ComponentType<any>) => {
-    onSelectIcon(iconName, IconComponent)
-    setIsOpen(false)
-    setSearchTerm('')
-    setSelectedCategory('all')
-  }
+  const handleSelectIcon = (iconName: string) => {
+    onSelectIcon(iconName);
+    setIsOpen(false);
+    setSearchTerm('');
+    setSelectedCategory('all');
+  };
 
   const categories = [
     { id: 'all', name: 'Todos' },
@@ -107,24 +107,24 @@ export function IconLibrary({ onSelectIcon }: IconLibraryProps) {
     { id: 'shapes', name: 'Formas' },
     { id: 'brands', name: 'Marcas' },
     { id: 'other', name: 'Outros' },
-  ]
+  ];
 
-  const { iconsToDisplay, totalFilteredIcons } = getFilteredIcons()
+  const { iconsToDisplay, totalFilteredIcons, totalPages } = getFilteredIcons();
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
+    <Drawer direction="right" open={isOpen} onOpenChange={setIsOpen}>
+      <DrawerTrigger asChild>
         <Button
           variant="outline"
           className="w-full flex items-center justify-center p-2 border rounded-md"
         >
           Biblioteca de Ícones
         </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>Biblioteca de Ícones</DialogTitle>
-        </DialogHeader>
+      </DrawerTrigger>
+      <DrawerContent className="w-1/2 p-4">
+        <DrawerHeader>
+          <DrawerTitle>Biblioteca de Ícones</DrawerTitle>
+        </DrawerHeader>
 
         <div className="space-y-4">
           <div>
@@ -153,35 +153,22 @@ export function IconLibrary({ onSelectIcon }: IconLibraryProps) {
             </div>
           </div>
 
-          <ScrollArea className="h-96">
-            <div className="grid grid-cols-8 gap-2 p-2">
-              {iconsToDisplay.map((iconData, index) => {
-                const IconComponent = iconData.icon
-                return (
-                  <Button
-                    key={`${iconData.category}-${iconData.name}-${index}`}
-                    variant="outline"
-                    size="sm"
-                    className="h-16 w-16 p-0 flex flex-col items-center justify-center text-center"
-                    onClick={() => handleSelectIcon(iconData.name, IconComponent)}
-                    title={iconData.name}
-                  >
-                    <Suspense fallback={<div className="w-5 h-5" />}>
-                      {IconComponent ? <IconComponent className="w-5 h-5" /> : <span>?</span>}
-                    </Suspense>
-                    <span className="text-xs mt-1 truncate w-full px-1">{iconData.name}</span>
-                  </Button>
-                )
-              })}
-            </div>
-
-            {totalFilteredIcons > iconsToDisplay.length && (
-              <div className="flex justify-center mt-4">
-                <Button onClick={handleLoadMore} variant="outline">
-                  Ver Mais
+         <ScrollArea className="w-full"style={{ height: '60vh' }}>
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-6 lg:grid-cols-8 gap-4 justify-items-center h-full">
+              {iconsToDisplay.map((iconData) => (
+                <Button
+                  key={`${iconData.category}-${iconData.name}`}
+                  variant="outline"
+                  size="sm"
+                  className="h-16 w-16 p-0 flex flex-col items-center justify-center text-center hover:bg-accent transition"
+                  onClick={() => handleSelectIcon(iconData.name)}
+                  title={iconData.name}
+                >
+                  <UIIconRenderer iconName={iconData.name} className="w-5 h-5" />
+                  <span className="text-xs mt-1 truncate w-full px-1">{iconData.name}</span>
                 </Button>
-              </div>
-            )}
+              ))}
+            </div>
 
             {totalFilteredIcons === 0 && (
               <div className="text-center py-8 text-muted-foreground">
@@ -189,8 +176,28 @@ export function IconLibrary({ onSelectIcon }: IconLibraryProps) {
               </div>
             )}
           </ScrollArea>
+
         </div>
-      </DialogContent>
-    </Dialog>
-  )
+        <DrawerFooter className="flex-row justify-center items-center">
+            <Button
+                variant="outline"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+            >
+                Anterior
+            </Button>
+            <span className="text-sm text-muted-foreground">
+                Página {currentPage} de {totalPages}
+            </span>
+            <Button
+                variant="outline"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+            >
+                Próximo
+            </Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
 }
