@@ -34,7 +34,7 @@ interface WireframeElement {
   imageSrc?: string;
   videoSrc?: string;
   navigationTarget?: string;
-  parentId?: string;
+  child?: WireframeElement[];
   name?: string;
   opacity?: number;
   fontWeight?: string | number;
@@ -169,23 +169,16 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
         const node = shapeRef.current;
         if (!node) return pos;
 
-        const parent = element.parentId ? wireframe.elements.find(el => el.id === element.parentId) : null;
+        // Since we don't have easy access to the parent here, we'll clamp to canvas for all.
+        // The final position is determined in onDragEnd anyway.
+        const minX = 0;
+        const minY = 0;
+        const maxX = canvasDimensions.width - node.width();
+        const maxY = canvasDimensions.height - node.height();
 
-        if (parent) {
-            // Allow free movement for child elements during drag. Clamping is handled in onDragEnd.
-            return pos;
-        } else {
-            // This is a top-level element. 'pos' is absolute.
-            // Constrain it to the canvas boundaries.
-            const minX = 0;
-            const minY = 0;
-            const maxX = canvasDimensions.width - node.width();
-            const maxY = canvasDimensions.height - node.height();
-
-            const newX = Math.max(minX, Math.min(pos.x, maxX));
-            const newY = Math.max(minY, Math.min(pos.y, maxY));
-            return { x: newX, y: newY };
-        }
+        const newX = Math.max(minX, Math.min(pos.x, maxX));
+        const newY = Math.max(minY, Math.min(pos.y, maxY));
+        return { x: newX, y: newY };
     },
   };
   let component;
@@ -424,82 +417,61 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                     enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
                     ignoreStroke={true}
                     centeredScaling={false}
-                    boundBoxFunc={(oldBox, newBox) => {
-                        const minSize = getElementMinimumSize(element.type);
-                        if (Math.abs(newBox.width) < minSize || Math.abs(newBox.height) < minSize) {
-                          return oldBox;
-                        }
-                      
-                        const node = shapeRef.current;
-                        if (!node) return newBox;
-                      
-                        // For top-level elements, x and y are canvas coordinates.
-                        let x = newBox.x;
-                        let y = newBox.y;
-                        let width = newBox.width;
-                        let height = newBox.height;
-                      
-                        // Clamp position
-                        if (x < 0) {
-                          width += x;
-                          x = 0;
-                        }
-                        if (y < 0) {
-                          height += y;
-                          y = 0;
-                        }
-                      
-                        // Clamp dimensions
-                        if (x + width > canvasDimensions.width) {
-                          width = canvasDimensions.width - x;
-                        }
-                        if (y + height > canvasDimensions.height) {
-                          height = canvasDimensions.height - y;
-                        }
-                      
-                        // After clamping, check min size again
-                        if (width < minSize || height < minSize) {
-                          return oldBox;
-                        }
-                      
-                        return {
-                          ...newBox,
-                          x,
-                          y,
-                          width,
-                          height,
-                        };
-                      }}          onTransformEnd={(e) => {
-            const node = shapeRef.current;
-            if (!node) return;
+                    onTransformEnd={(e) => {
+              const node = shapeRef.current;
+              if (!node) return;
 
-            const scaleX = node.scaleX();
-            const scaleY = node.scaleY();
-            node.scaleX(1);
-            node.scaleY(1);
+              // Use client rect which reflects the node's bounding box after transforms
+              // This handles cases where scaling was done from left/top anchors correctly
+              // and gives us the top-left coordinates and size in the parent's coordinate space.
+              const clientRect = node.getClientRect({ skipTransform: false });
 
-            const minSize = getElementMinimumSize(element.type);
+              // Reset scale so Konva internal state matches baked dimensions
+              const scaleX = node.scaleX();
+              const scaleY = node.scaleY();
+              node.scaleX(1);
+              node.scaleY(1);
 
-            let newWidth = node.width() * scaleX;
-            let newHeight = node.height() * scaleY;
+              // Determine new size using client rect (already accounts for transform)
+              let newWidth = Math.max(getElementMinimumSize(element.type), clientRect.width);
+              let newHeight = Math.max(getElementMinimumSize(element.type), clientRect.height);
 
-            newWidth = (isNaN(newWidth) || !isFinite(newWidth)) ? minSize : Math.max(minSize, newWidth);
-            newHeight = (isNaN(newHeight) || !isFinite(newHeight)) ? minSize : Math.max(minSize, newHeight);
+              // For circle, ensure it's square and convert client rect center to top-left
+              let absoluteX = clientRect.x;
+              let absoluteY = clientRect.y;
+              if (element.type === 'circle') {
+                const maxSide = Math.max(newWidth, newHeight);
+                newWidth = newHeight = maxSide;
+                // Konva circle positioning: the node's x/y is the center when rendered as Circle.
+                // clientRect.x/y for a circle already gives top-left of bounding box, so use it directly.
+              }
 
-            if (element.type === 'circle') {
-              newWidth = newHeight = Math.max(newWidth, newHeight);
-            }
-            
-            const absPos = node.getAbsolutePosition();
+              // Bake the new width/height into the node so subsequent operations read correct values
+              try {
+                node.width(newWidth);
+                node.height(newHeight);
+              } catch (err) {
+                // Some Konva node types may not support width/height setters the same way; ignore safely
+              }
 
-            onElementTransformEnd(
-              element.id,
-              absPos.x,
-              absPos.y,
-              newWidth,
-              newHeight
-            );
-          }}
+              // Debug info to help diagnose parent/container shifts when resizing from left/top
+              try {
+                const stage = node.getStage ? node.getStage() : undefined;
+                const stageRect = stage && stage.container ? stage.container().getBoundingClientRect() : null;
+                // eslint-disable-next-line no-console
+                console.debug('[WireframeCanvas] onTransformEnd:', { elementId: element.id, clientRect, scaleX, scaleY, stageRect, nodeBounds: { x: node.x(), y: node.y(), width: node.width(), height: node.height() } });
+              } catch (err) {
+                // ignore
+              }
+
+              onElementTransformEnd(
+                element.id,
+                Math.round(absoluteX),
+                Math.round(absoluteY),
+                Math.round(newWidth),
+                Math.round(newHeight)
+              );
+            }}
         />
       )}
     </Fragment>
@@ -592,9 +564,9 @@ export const WireframeCanvas = React.forwardRef(({
     }
   }, [ref]);
 
-  const renderElementAndChildren = (element: WireframeElement, allElements: WireframeElement[]) => {
+  const renderElementAndChildren = (element: WireframeElement) => {
     if (element.type === 'frame') {
-      const children = allElements.filter(el => el.parentId === element.id);
+      const children = element.child || [];
       return (
         <Group
           key={element.id}
@@ -632,7 +604,7 @@ export const WireframeCanvas = React.forwardRef(({
             isXRayMode={isXRayMode}
           />
           {/* Render children recursively */}
-          {children.map(child => renderElementAndChildren(child, allElements))}
+          {children.map(child => renderElementAndChildren(child))}
         </Group>
       );
     }
@@ -675,9 +647,8 @@ export const WireframeCanvas = React.forwardRef(({
         <GridOverlay width={canvasDimensions.width} height={canvasDimensions.height} gridConfig={gridConfig} />
         <Layer>
           {wireframe.elements
-            .filter(el => !el.parentId) // Start with top-level elements
             .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-            .map(element => renderElementAndChildren(element, wireframe.elements))}
+            .map(element => renderElementAndChildren(element))}
         </Layer>
       </Stage>
     </div>

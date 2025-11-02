@@ -103,7 +103,7 @@ interface WireframeElement {
   imageSrc?: string;
   videoSrc?: string;
   navigationTarget?: string;
-  parentId?: string;
+  child?: WireframeElement[];
   name?: string;
   opacity?: number; // Adicionado para controlar a transparência da imagem
   enhance?: number;
@@ -356,33 +356,36 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
   const updateElementProperties = useCallback((elementId: string, props: Partial<WireframeElement>) => {
     triggerUnsyncedState();
+
+    const updateRecursively = (elements: WireframeElement[], id: string, properties: Partial<WireframeElement>): WireframeElement[] => {
+      return elements.map(el => {
+        if (el.id === id) {
+          const updatedEl = { ...el, ...properties };
+
+          if (updatedEl.type === 'icon') {
+            if (properties.width !== undefined) {
+              updatedEl.width = Math.max(14, properties.width);
+            }
+            if (properties.height !== undefined) {
+              updatedEl.height = Math.max(14, properties.height);
+            }
+          }
+          return updatedEl;
+        }
+        if (el.child) {
+          return { ...el, child: updateRecursively(el.child, id, properties) };
+        }
+        return el;
+      });
+    };
+
     const updatedProject = {
       ...internalProject,
       wireframes: internalProject.wireframes.map(w =>
         activeWireframe !== 'none' && w.id === activeWireframe
           ? {
               ...w,
-              elements: w.elements.map(el => {
-                if (el.id === elementId) {
-                  const updatedEl = { ...el, ...props };
-
-                  if (props.hasOwnProperty('parentId') && props.parentId === undefined) {
-                    delete updatedEl.parentId;
-                  }
-
-                  if (updatedEl.type === 'icon') {
-                    if (props.width !== undefined) {
-                      updatedEl.width = Math.max(14, props.width);
-                    }
-                    if (props.height !== undefined) {
-                      updatedEl.height = Math.max(14, props.height);
-                    }
-                  }
-
-                  return updatedEl;
-                }
-                return el;
-              })
+              elements: updateRecursively(w.elements, elementId, props)
             }
           : w
       )
@@ -396,35 +399,164 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
   const handleApplyTextChanges = (changes: Partial<WireframeElement>) => {
     if (!selectedElement) return;
-    triggerUnsyncedState();
+    updateElementProperties(selectedElement, changes);
+  };
+
+  const findElementRecursive = (elements: WireframeElement[], id: string): WireframeElement | null => {
+    for (const el of elements) {
+        if (el.id === id) return el;
+        if (el.child) {
+            const found = findElementRecursive(el.child, id);
+            if (found) return found;
+        }
+    }
+    return null;
+  }
+
+  const replaceElement = (elementId: string, newElement: WireframeElement) => {
+    const replaceRecursively = (elements: WireframeElement[]): WireframeElement[] => {
+        return elements.map(el => {
+            if (el.id === elementId) {
+                return newElement;
+            }
+            if (el.child) {
+                return { ...el, child: replaceRecursively(el.child) };
+            }
+            return el;
+        });
+    };
+
     const updatedProject = {
       ...internalProject,
       wireframes: internalProject.wireframes.map(w =>
         w.id === activeWireframe
-          ? {
-              ...w,
-              elements: w.elements.map(el =>
-                el.id === selectedElement
-                  ? { ...el, ...changes }
-                  : el
-              )
-            }
+          ? { ...w, elements: replaceRecursively(w.elements) }
           : w
       )
     };
     updateAndSaveProject(updatedProject);
   };
 
-  const updateFrameLayout = useCallback((frameId: string) => {
+  const fillContainer = (elementId: string, axis: 'horizontal' | 'vertical') => {
     const wireframe = internalProject.wireframes.find(w => w.id === activeWireframe);
     if (!wireframe) return;
 
-    const frame = wireframe.elements.find(e => e.id === frameId);
+    const findElementWithParent = (elements: WireframeElement[], id: string, parent: WireframeElement | null = null): { element: WireframeElement, parent: WireframeElement | null } | null => {
+        for (const el of elements) {
+            if (el.id === id) return { element: el, parent };
+            if (el.child) {
+                const found = findElementWithParent(el.child, id, el);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    const result = findElementWithParent(wireframe.elements, elementId);
+    if (!result) return;
+
+    const { element, parent } = result;
+    const propertiesToUpdate: Partial<WireframeElement> = {};
+
+    const parentPadding = parent ? (parent.padding || 0) : 0;
+
+    if (axis === 'horizontal') {
+        const parentWidth = parent ? parent.width : canvasDimensions.width;
+        propertiesToUpdate.x = parent ? parentPadding : 0;
+        const newWidth = parent ? parentWidth - (parentPadding * 2) : parentWidth;
+        propertiesToUpdate.width = Math.max(24, newWidth);
+    }
+
+    if (axis === 'vertical') {
+        const parentHeight = parent ? parent.height : canvasDimensions.height;
+        propertiesToUpdate.y = parent ? parentPadding : 0;
+        const newHeight = parent ? parentHeight - (parentPadding * 2) : parentHeight;
+        propertiesToUpdate.height = Math.max(24, newHeight);
+    }
+
+    if (Object.keys(propertiesToUpdate).length > 0) {
+        updateElementProperties(elementId, propertiesToUpdate);
+    }
+  };
+
+  const hugContents = (frameId: string, axis: 'horizontal' | 'vertical') => {
+    const frame = findElementRecursive(currentWireframe?.elements || [], frameId);
+    if (!frame) return;
+
+    if (!frame.child || frame.child.length === 0) {
+        const props: Partial<WireframeElement> = {};
+        if (axis === 'horizontal') props.width = 24;
+        if (axis === 'vertical') props.height = 24;
+        if (Object.keys(props).length > 0) updateElementProperties(frameId, props);
+        return;
+    }
+
+    const children = frame.child;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    children.forEach(child => {
+        minX = Math.min(minX, child.x);
+        minY = Math.min(minY, child.y);
+        maxX = Math.max(maxX, child.x + child.width);
+        maxY = Math.max(maxY, child.y + child.height);
+    });
+
+    const padding = frame.padding || 16;
+    const newFrame = { ...frame, child: [...(frame.child || [])] }; 
+
+    if (axis === 'horizontal') {
+        const newWidth = Math.max(24, maxX - minX + padding * 2);
+        const dx = -minX + padding;
+        newFrame.width = newWidth;
+        newFrame.x = frame.x + minX - padding;
+        newFrame.child = newFrame.child.map(child => ({ ...child, x: child.x + dx }));
+    }
+
+    if (axis === 'vertical') {
+        const newHeight = Math.max(24, maxY - minY + padding * 2);
+        const dy = -minY + padding;
+        newFrame.height = newHeight;
+        newFrame.y = frame.y + minY - padding;
+        newFrame.child = newFrame.child.map(child => ({ ...child, y: child.y + dy }));
+    }
+
+    replaceElement(frameId, newFrame);
+  };
+
+  const handleResize = (type: 'fill' | 'hug', axis: 'horizontal' | 'vertical') => {
+    if (!selectedElementData) return;
+
+    if (type === 'fill') {
+        fillContainer(selectedElementData.id, axis);
+    } else { // hug
+        if (selectedElementData.layoutMode && selectedElementData.layoutMode !== 'none') {
+            updateFrameLayout(selectedElementData.id, axis);
+        } else {
+            hugContents(selectedElementData.id, axis);
+        }
+    }
+  };
+
+  const updateFrameLayout = useCallback((frameId: string, axis?: 'horizontal' | 'vertical') => {
+    const wireframe = internalProject.wireframes.find(w => w.id === activeWireframe);
+    if (!wireframe) return;
+
+    const findElement = (elements: WireframeElement[], id: string): WireframeElement | null => {
+        for (const el of elements) {
+            if (el.id === id) return el;
+            if (el.child) {
+                const found = findElement(el.child, id);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    const frame = findElement(wireframe.elements, frameId);
     if (!frame || !frame.layoutMode || frame.layoutMode === 'none') {
       return;
     }
 
-    const children = wireframe.elements.filter(e => e.parentId === frameId);
+    const children = frame.child || [];
     
     const padding = frame.padding || 0;
     const spacing = frame.itemSpacing || 0;
@@ -433,10 +565,10 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     let currentY = padding;
     let maxInSecondaryAxis = 0;
 
-    const updates: { elementId: string, props: Partial<WireframeElement> }[] = [];
+    const childUpdates: { elementId: string, props: Partial<WireframeElement> }[] = [];
 
     children.forEach(child => {
-      updates.push({ elementId: child.id, props: { x: currentX, y: currentY } });
+      childUpdates.push({ elementId: child.id, props: { x: currentX, y: currentY } });
       if (frame.layoutMode === 'horizontal') {
         currentX += child.width + spacing;
         maxInSecondaryAxis = Math.max(maxInSecondaryAxis, child.height);
@@ -460,19 +592,47 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       newFrameHeight = currentY - spacing + padding;
     }
 
-    updates.push({ elementId: frame.id, props: { width: newFrameWidth, height: newFrameHeight } });
+    const frameUpdate: Partial<WireframeElement> = {};
 
-    // Batch update all properties
+    if (children.length === 0) {
+      frameUpdate.width = newFrameWidth;
+      frameUpdate.height = newFrameHeight;
+    } else {
+      if (!axis || axis === 'horizontal') {
+        frameUpdate.width = newFrameWidth;
+      }
+      if (!axis || axis === 'vertical') {
+        frameUpdate.height = newFrameHeight;
+      }
+    }
+
+    if (Object.keys(frameUpdate).length === 0) return;
+
+    const batchUpdateRecursively = (elements: WireframeElement[]): WireframeElement[] => {
+        return elements.map(el => {
+            let newEl = el;
+            if (el.id === frameId) {
+                newEl = { ...newEl, ...frameUpdate };
+                if (newEl.child) {
+                    newEl.child = newEl.child.map(childEl => {
+                        const childUpdate = childUpdates.find(u => u.elementId === childEl.id);
+                        return childUpdate ? { ...childEl, ...childUpdate.props } : childEl;
+                    });
+                }
+            } else if (el.child) {
+                newEl = { ...el, child: batchUpdateRecursively(el.child) };
+            }
+            return newEl;
+        });
+    }
+
     const updatedProject = {
       ...internalProject,
       wireframes: internalProject.wireframes.map(w =>
         w.id === activeWireframe
           ? {
               ...w,
-              elements: w.elements.map(el => {
-                const update = updates.find(u => u.elementId === el.id);
-                return update ? { ...el, ...update.props } : el;
-              })
+              elements: batchUpdateRecursively(w.elements)
             }
           : w
       )
@@ -525,7 +685,20 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     }
   }, [selectedElement]);
 
-  const selectedElementData = selectedElement && currentWireframe?.elements.find(el => el.id === selectedElement);
+  const selectedElementData = (() => {
+    if (!selectedElement || !currentWireframe) return null;
+    const find = (elements: WireframeElement[], id: string): WireframeElement | null => {
+        for (const el of elements) {
+            if (el.id === id) return el;
+            if (el.child) {
+                const found = find(el.child, id);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+    return find(currentWireframe.elements, selectedElement);
+})();
 
   useEffect(() => {
     if (selectedElementData && selectedElementData.type === 'frame' && selectedElementData.layoutMode !== 'none') {
@@ -887,12 +1060,9 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   };
 
   const copyElement = () => {
-    if (selectedElement && currentWireframe) {
-      const element = currentWireframe.elements.find(el => el.id === selectedElement);
-      if (element) {
-        setCopiedElement({ ...element });
-        showToast(`${element.type === 'text' ? 'Texto' : element.type === 'button' ? 'Botão' : 'Elemento'} copiado!`, 'success');
-      }
+    if (selectedElementData) {
+      setCopiedElement({ ...selectedElementData });
+      showToast(`${selectedElementData.type === 'text' ? 'Texto' : selectedElementData.type === 'button' ? 'Botão' : 'Elemento'} copiado!`, 'success');
     }
   };
 
@@ -958,48 +1128,41 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   };
 
   const moveElementWithKeyboard = (direction: 'up' | 'down' | 'left' | 'right', step: number = 1) => {
-    if (!selectedElement || !currentWireframe) return;
+    if (!selectedElementData) return;
     triggerUnsyncedState();
-    const element = currentWireframe.elements.find(el => el.id === selectedElement);
-    if (!element) return;
-
+    
+    const element = selectedElementData;
     let newX = element.x;
     let newY = element.y;
 
     switch (direction) {
-      case 'up': newY = Math.max(0, element.y - step); break;
-      case 'down': newY = Math.min(canvasDimensions.height - element.height, element.y + step); break;
-      case 'left': newX = Math.max(0, element.x - step); break;
-      case 'right': newX = Math.min(canvasDimensions.width - element.width, element.x + step); break;
+      case 'up': newY = element.y - step; break;
+      case 'down': newY = element.y + step; break;
+      case 'left': newX = element.x - step; break;
+      case 'right': newX = element.x + step; break;
     }
 
-    const updatedProject = {
-      ...internalProject,
-      wireframes: internalProject.wireframes.map(w => 
-        w.id === activeWireframe 
-          ? { 
-              ...w, 
-              elements: w.elements.map(el => 
-                el.id === selectedElement 
-                  ? { ...el, x: newX, y: newY } 
-                  : el
-              ) 
-            }
-          : w
-      )
-    };
-
-    updateAndSaveProject(updatedProject);
+    updateElementProperties(element.id, { x: newX, y: newY });
   };
 
   const handleDeleteSelectedElement = () => {
     if (!selectedElement || !currentWireframe) return;
     triggerUnsyncedState();
+
+    const removeRecursively = (elements: WireframeElement[], id: string): WireframeElement[] => {
+      return elements.filter(el => el.id !== id).map(el => {
+        if (el.child) {
+          return { ...el, child: removeRecursively(el.child, id) };
+        }
+        return el;
+      });
+    };
+
     const updatedProject = {
       ...internalProject,
       wireframes: internalProject.wireframes.map(w => 
         w.id === activeWireframe 
-          ? { ...w, elements: w.elements.filter(el => el.id !== selectedElement) }
+          ? { ...w, elements: removeRecursively(w.elements, selectedElement) }
           : w
       )
     };
@@ -1105,22 +1268,66 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
   const handleElementDragEnd = useCallback((elementId: string, newX: number, newY: number) => {
     if (!currentWireframe) return;
-    const element = currentWireframe.elements.find(el => el.id === elementId);
+
+    const findAndRemoveElement = (elements: WireframeElement[], id: string): { newElements: WireframeElement[], removed: WireframeElement | null } => {
+        let removed: WireframeElement | null = null;
+        const remaining = elements.filter(el => {
+            if (el.id === id) {
+                removed = el;
+                return false;
+            }
+            return true;
+        });
+
+        if (removed) {
+            return { newElements: remaining, removed };
+        }
+
+        const newElements = elements.map(el => {
+            if (el.child) {
+                const result = findAndRemoveElement(el.child, id);
+                if (result.removed) {
+                    removed = result.removed;
+                    return { ...el, child: result.newElements };
+                }
+            }
+            return el;
+        });
+        return { newElements, removed };
+    };
+
+    const { newElements: elementsAfterRemoval, removed: element } = findAndRemoveElement(currentWireframe.elements, elementId);
+
     if (!element) return;
 
     const clampedX = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
     const clampedY = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
 
-    const frames = currentWireframe.elements.filter(el => el.type === 'frame' && el.id !== elementId);
-    let newParent: WireframeElement | undefined = undefined;
+    const getAllFramesWithAbsPos = (elements: WireframeElement[], parentPos = { x: 0, y: 0 }): (WireframeElement & { absX: number, absY: number })[] => {
+        let frames: (WireframeElement & { absX: number, absY: number })[] = [];
+        for (const el of elements) {
+            const absX = parentPos.x + el.x;
+            const absY = parentPos.y + el.y;
+            if (el.type === 'frame') {
+                frames.push({ ...el, absX, absY });
+            }
+            if (el.child) {
+                frames = frames.concat(getAllFramesWithAbsPos(el.child, { x: absX, y: absY }));
+            }
+        }
+        return frames;
+    };
 
+    const allFrames = getAllFramesWithAbsPos(elementsAfterRemoval).filter(f => f.id !== elementId);
+
+    let newParent: (WireframeElement & { absX: number, absY: number }) | undefined = undefined;
     const elementCenterX = clampedX + element.width / 2;
     const elementCenterY = clampedY + element.height / 2;
 
-    for (const frame of frames) {
+    for (const frame of allFrames) {
       if (
-        elementCenterX >= frame.x && elementCenterX < frame.x + frame.width &&
-        elementCenterY >= frame.y && elementCenterY < frame.y + frame.height
+        elementCenterX >= frame.absX && elementCenterX < frame.absX + frame.width &&
+        elementCenterY >= frame.absY && elementCenterY < frame.absY + frame.height
       ) {
         if (!newParent || (frame.zIndex || 0) > (newParent.zIndex || 0)) {
           newParent = frame;
@@ -1128,58 +1335,210 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       }
     }
 
-    const updates: Partial<WireframeElement> = { x: clampedX, y: clampedY, parentId: newParent?.id };
+    let finalElements = elementsAfterRemoval;
+    let updatedElement = { ...element };
 
     if (newParent) {
-      updates.x = clampedX - newParent.x;
-      updates.y = clampedY - newParent.y;
+        updatedElement.x = clampedX - newParent.absX;
+        updatedElement.y = clampedY - newParent.absY;
+        
+        const addElementToParent = (elements: WireframeElement[], parentId: string, childToAdd: WireframeElement): WireframeElement[] => {
+            return elements.map(el => {
+                if (el.id === parentId) {
+                    return { ...el, child: [...(el.child || []), childToAdd] };
+                }
+                if (el.child) {
+                    return { ...el, child: addElementToParent(el.child, parentId, childToAdd) };
+                }
+                return el;
+            });
+        };
+        finalElements = addElementToParent(finalElements, newParent.id, updatedElement);
+    } else {
+        updatedElement.x = clampedX;
+        updatedElement.y = clampedY;
+        finalElements = [...finalElements, updatedElement];
     }
 
-    updateElementProperties(elementId, updates);
-}, [updateElementProperties, currentWireframe, canvasDimensions]);
+    const updatedProject = {
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
+        w.id === activeWireframe
+          ? { ...w, elements: finalElements }
+          : w
+      )
+    };
+    updateAndSaveProject(updatedProject);
+
+}, [internalProject, activeWireframe, canvasDimensions]);
 
   const handleReparentElement = useCallback((elementId: string, newParentId: string | null, newX: number, newY: number) => {
-    updateElementProperties(elementId, { x: newX, y: newY, parentId: newParentId === null ? undefined : newParentId });
-  }, [updateElementProperties]);
+    if (!currentWireframe) return;
 
-  const handleElementTransformEnd = useCallback((elementId: string, newX: number, newY: number, newWidth: number, newHeight: number) => {
-    const element = currentWireframe?.elements.find(el => el.id === elementId);
+    const findAndRemoveElement = (elements: WireframeElement[], id: string): { newElements: WireframeElement[], removed: WireframeElement | null } => {
+        let removed: WireframeElement | null = null;
+        const remaining = elements.filter(el => {
+            if (el.id === id) {
+                removed = el;
+                return false;
+            }
+            return true;
+        });
+
+        if (removed) {
+            return { newElements: remaining, removed };
+        }
+
+        const newElements = elements.map(el => {
+            if (el.child) {
+                const result = findAndRemoveElement(el.child, id);
+                if (result.removed) {
+                    removed = result.removed;
+                    return { ...el, child: result.newElements };
+                }
+            }
+            return el;
+        });
+        return { newElements, removed };
+    };
+
+    const { newElements: elementsAfterRemoval, removed: element } = findAndRemoveElement(currentWireframe.elements, elementId);
+
     if (!element) return;
 
-    const parentFrame = element.parentId ? currentWireframe?.elements.find(el => el.id === element.parentId) : null;
+    let updatedElement = { ...element, x: newX, y: newY };
+    let finalElements = elementsAfterRemoval;
+
+    if (newParentId) {
+        const addElementToParent = (elements: WireframeElement[], parentId: string, childToAdd: WireframeElement): WireframeElement[] => {
+            return elements.map(el => {
+                if (el.id === parentId) {
+                    return { ...el, child: [...(el.child || []), childToAdd] };
+                }
+                if (el.child) {
+                    return { ...el, child: addElementToParent(el.child, parentId, childToAdd) };
+                }
+                return el;
+            });
+        };
+        finalElements = addElementToParent(elementsAfterRemoval, newParentId, updatedElement);
+    } else {
+        finalElements = [...elementsAfterRemoval, updatedElement];
+    }
+
+    const updatedProject = {
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
+        w.id === activeWireframe
+          ? { ...w, elements: finalElements }
+          : w
+      )
+    };
+    updateAndSaveProject(updatedProject);
+
+}, [internalProject, activeWireframe, updateAndSaveProject]);
+
+  const handleElementTransformEnd = useCallback((elementId: string, newX: number, newY: number, newWidth: number, newHeight: number) => {
+    if (!currentWireframe) return;
+
+    const findElementWithParent = (elements: WireframeElement[], id: string, parent: WireframeElement | null = null): { element: WireframeElement, parent: WireframeElement | null } | null => {
+        for (const el of elements) {
+            if (el.id === id) return { element: el, parent };
+            if (el.child) {
+                const found = findElementWithParent(el.child, id, el);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    const getElementPath = (elements: WireframeElement[], id: string): WireframeElement[] | null => {
+        const find = (currentElements: WireframeElement[], targetId: string, path: WireframeElement[]): WireframeElement[] | null => {
+            for (const el of currentElements) {
+                const newPath = [...path, el];
+                if (el.id === targetId) return newPath;
+                if (el.child) {
+                    const found = find(el.child, targetId, newPath);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        return find(elements, id, []);
+    }
+
+    const getAbsolutePosition = (path: WireframeElement[]): {x: number, y: number} => {
+        return path.reduce((pos, el) => ({ x: pos.x + el.x, y: pos.y + el.y }), { x: 0, y: 0 });
+    }
+
+    const found = findElementWithParent(currentWireframe.elements, elementId);
+    if (!found) return;
+    const { element, parent: parentFrame } = found;
+
+    // Debug: log transform inputs and current container scroll to investigate parent div shifts
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[WireframeEditor] handleElementTransformEnd start', { elementId, newX, newY, newWidth, newHeight, selectedElement, parentFrameId: parentFrame?.id });
+      if (canvasContainerRef.current) {
+        // eslint-disable-next-line no-console
+        console.debug('[WireframeEditor] canvas container scroll', { left: canvasContainerRef.current.scrollLeft, top: canvasContainerRef.current.scrollTop });
+      }
+    } catch (err) {
+      // ignore
+    }
 
     const minSize = getElementMinimumSize(element.type);
-    const finalWidth = Math.max(minSize, newWidth);
-    const finalHeight = Math.max(minSize, newHeight);
-    let finalX, finalY;
+    let finalWidth = Math.max(minSize, newWidth);
+    let finalHeight = Math.max(minSize, newHeight);
+    let finalX = newX;
+    let finalY = newY;
+
+    let container = { x: 0, y: 0, width: canvasDimensions.width, height: canvasDimensions.height, padding: 0 };
 
     if (parentFrame) {
-        // Assume newX/newY are absolute, convert to relative to the parent frame.
-        const relativeX = newX - parentFrame.x;
-        const relativeY = newY - parentFrame.y;
-
-        // Clamp position to keep the element within the parent's bounds.
-        finalX = Math.max(0, Math.min(relativeX, parentFrame.width - finalWidth));
-        finalY = Math.max(0, Math.min(relativeY, parentFrame.height - finalHeight));
-    } else {
-        // No parent, clamp to canvas boundaries.
-        finalX = Math.max(0, Math.min(newX, canvasDimensions.width - finalWidth));
-        finalY = Math.max(0, Math.min(newY, canvasDimensions.height - finalHeight));
+        const parentPath = getElementPath(currentWireframe.elements, parentFrame.id);
+        const parentAbsPos = parentPath ? getAbsolutePosition(parentPath) : { x: 0, y: 0 };
+        container = {
+            x: parentAbsPos.x,
+            y: parentAbsPos.y,
+            width: parentFrame.width,
+            height: parentFrame.height,
+            padding: parentFrame.padding || 0
+        };
     }
+
+    // Clamp width and height
+    finalWidth = Math.min(finalWidth, container.width - container.padding * 2);
+    finalHeight = Math.min(finalHeight, container.height - container.padding * 2);
+
+    // Clamp position
+    finalX = Math.max(container.x + container.padding, Math.min(finalX, container.x + container.width - finalWidth - container.padding));
+    finalY = Math.max(container.y + container.padding, Math.min(finalY, container.y + container.height - finalHeight - container.padding));
+
+    // Convert back to relative coordinates if there is a parent
+    let relativeX = finalX;
+    let relativeY = finalY;
+    if (parentFrame) {
+        const parentPath = getElementPath(currentWireframe.elements, parentFrame.id);
+        const parentAbsPos = parentPath ? getAbsolutePosition(parentPath) : { x: 0, y: 0 };
+        relativeX = finalX - parentAbsPos.x;
+        relativeY = finalY - parentAbsPos.y;
+    }
+
+    // Debug: log computed relative position and size before saving
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[WireframeEditor] handleElementTransformEnd computed', { relativeX, relativeY, finalWidth, finalHeight });
+    } catch (err) {}
 
     updateElementProperties(elementId, {
-      x: finalX,
-      y: finalY,
-      width: finalWidth,
-      height: finalHeight,
+      x: Math.round(relativeX),
+      y: Math.round(relativeY),
+      width: Math.round(finalWidth),
+      height: Math.round(finalHeight),
     });
 
-    if (parentFrame && parentFrame.layoutMode && parentFrame.layoutMode !== 'none') {
-      setTimeout(() => {
-        updateFrameLayout(parentFrame.id);
-      }, 0);
-    }
-  }, [updateElementProperties, currentWireframe, canvasDimensions, getElementMinimumSize, updateFrameLayout]);
+  }, [internalProject, activeWireframe, canvasDimensions, getElementMinimumSize, updateFrameLayout]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && selectedElement) {
@@ -1850,10 +2209,26 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           {selectedElementData.type === 'frame' && (
                             <>
                               <div className="space-y-2 pt-4">
+                                <Label className="text-sm font-medium">Sizing</Label>
+                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                  <Button variant="outline" size="sm" onClick={() => handleResize('fill', 'horizontal')}>Fill Horizontally</Button>
+                                  <Button variant="outline" size="sm" onClick={() => handleResize('fill', 'vertical')}>Fill Vertically</Button>
+                                  <Button variant="outline" size="sm" onClick={() => handleResize('hug', 'horizontal')}>Hug Horizontally</Button>
+                                  <Button variant="outline" size="sm" onClick={() => handleResize('hug', 'vertical')}>Hug Vertically</Button>
+                                </div>
+                              </div>
+                              <div className="space-y-2 pt-4">
                                 <Label className="text-sm font-medium">Auto Layout</Label>
                                 <Select
                                   value={selectedElementData.layoutMode || 'none'}
-                                  onValueChange={(value) => updateElementProperty(selectedElementData.id, 'layoutMode', value)}
+                                  onValueChange={(value) => {
+                                    const newLayoutMode = value as 'none' | 'horizontal' | 'vertical';
+                                    const properties: Partial<WireframeElement> = { layoutMode: newLayoutMode };
+                                    if ((newLayoutMode === 'horizontal' || newLayoutMode === 'vertical') && (!selectedElementData.layoutMode || selectedElementData.layoutMode === 'none')) {
+                                      properties.padding = 16;
+                                    }
+                                    updateElementProperties(selectedElementData.id, properties);
+                                  }}
                                 >
                                   <SelectTrigger>
                                     <SelectValue placeholder="Select layout mode" />

@@ -52,7 +52,7 @@ interface WireframeElement {
   imageSrc?: string;
   videoSrc?: string;
   navigationTarget?: string;
-  parentId?: string;
+  child?: WireframeElement[];
   name?: string;
 }
 
@@ -132,6 +132,22 @@ export function ElementTree({
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
+  const cleanupDragState = () => {
+    setDraggedItemId(null);
+    setDropTargetId(null);
+  };
+
+  const getDraggedItem = (e: React.DragEvent): WireframeElement | null => {
+    try {
+      const data = e.dataTransfer.getData('application/json');
+      if (data) {
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      console.error("Failed to get dragged item:", error);
+    }
+    return null;
+  };
 
   useEffect(() => {
     if (activeWireframe && !expandedWireframes.has(activeWireframe)) {
@@ -227,6 +243,31 @@ export function ElementTree({
     setDropTargetId(null);
   };
 
+  const isDescendant = (potentialChildId: string, parentId: string): boolean => {
+      const findElement = (elements: WireframeElement[], id: string): WireframeElement | null => {
+          for (const el of elements) {
+              if (el.id === id) return el;
+              if (el.child) {
+                  const found = findElement(el.child, id);
+                  if (found) return found;
+              }
+          }
+          return null;
+      }
+      const parent = findElement(wireframes.find(w => w.id === activeWireframe)?.elements || [], parentId);
+      if (!parent) return false;
+
+      const check = (element: WireframeElement): boolean => {
+          if (element.id === potentialChildId) return true;
+          if (element.child) {
+              return element.child.some(c => check(c));
+          }
+          return false;
+      }
+      return parent.child ? parent.child.some(c => check(c)) : false;
+  }
+
+
   const handleDrop = (e: React.DragEvent, dropTarget?: WireframeElement) => {
     e.preventDefault();
     e.stopPropagation();
@@ -234,16 +275,46 @@ export function ElementTree({
     const draggedItem = getDraggedItem(e);
     if (!draggedItem) return;
 
+    const findElementWithParent = (elements: WireframeElement[], id: string, parent: WireframeElement | null = null): { element: WireframeElement, parent: WireframeElement | null } | null => {
+        for (const el of elements) {
+            if (el.id === id) return { element: el, parent };
+            if (el.child) {
+                const found = findElementWithParent(el.child, id, el);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+    
+    const getElementPath = (elements: WireframeElement[], id: string): WireframeElement[] | null => {
+        const find = (currentElements: WireframeElement[], targetId: string, path: WireframeElement[]): WireframeElement[] | null => {
+            for (const el of currentElements) {
+                const newPath = [...path, el];
+                if (el.id === targetId) return newPath;
+                if (el.child) {
+                    const found = find(el.child, targetId, newPath);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        return find(elements, id, []);
+    }
+
+    const getAbsolutePosition = (path: WireframeElement[]): {x: number, y: number} => {
+        return path.reduce((pos, el) => ({ x: pos.x + el.x, y: pos.y + el.y }), { x: 0, y: 0 });
+    }
+
     const currentElements = wireframes.find(w => w.id === activeWireframe)?.elements || [];
-    const oldParent = currentElements.find(el => el.id === draggedItem.parentId);
+    const foundOld = findElementWithParent(currentElements, draggedItem.id);
+    const oldParent = foundOld ? foundOld.parent : null;
 
     let newParentId: string | null = null;
     if (dropTarget && dropTarget.type === 'frame' && dropTarget.id !== draggedItem.id) {
       newParentId = dropTarget.id;
     }
 
-    // If dropping on the same parent, do nothing
-    if (draggedItem.parentId === newParentId) {
+    if ((oldParent?.id || null) === newParentId) {
       cleanupDragState();
       return;
     }
@@ -251,84 +322,30 @@ export function ElementTree({
     let newX = draggedItem.x;
     let newY = draggedItem.y;
 
-    // Reparenting logic with coordinate conversion
-    if (newParentId && !draggedItem.parentId) {
-      // Moving from root into a frame
-      const newParent = currentElements.find(el => el.id === newParentId);
-      if (newParent) {
-        newX = draggedItem.x - newParent.x;
-        newY = draggedItem.y - newParent.y;
-      }
-    } else if (!newParentId && draggedItem.parentId) {
-      // Moving from a frame to root
-      if (oldParent) {
-        newX = draggedItem.x + oldParent.x;
-        newY = draggedItem.y + oldParent.y;
-      }
-    } else if (newParentId && draggedItem.parentId) {
-      // Moving from one frame to another
-      const newParent = currentElements.find(el => el.id === newParentId);
-      if (oldParent && newParent) {
-        newX = (draggedItem.x + oldParent.x) - newParent.x;
-        newY = (draggedItem.y + oldParent.y) - newParent.y;
-      }
-    }
+    const oldParentPath = oldParent ? getElementPath(currentElements, oldParent.id) : [];
+    const oldParentAbsPos = oldParentPath ? getAbsolutePosition(oldParentPath) : {x: 0, y: 0};
+    
+    const newParentPath = newParentId ? getElementPath(currentElements, newParentId) : [];
+    const newParentAbsPos = newParentPath ? getAbsolutePosition(newParentPath) : {x: 0, y: 0};
+
+    const draggedItemAbsX = oldParentAbsPos.x + draggedItem.x;
+    const draggedItemAbsY = oldParentAbsPos.y + draggedItem.y;
+
+    newX = draggedItemAbsX - newParentAbsPos.x;
+    newY = draggedItemAbsY - newParentAbsPos.y;
     
     onReparentElement(draggedItem.id, newParentId, newX, newY);
     cleanupDragState();
   };
 
-  const cleanupDragState = () => {
-    setDraggedItemId(null);
-    setDropTargetId(null);
-  };
-
-  const getDraggedItem = (e: React.DragEvent): WireframeElement | null => {
-    try {
-      return JSON.parse(e.dataTransfer.getData('application/json'));
-    } catch {
-      return null;
-    }
-  };
-
-  const isDescendant = (potentialChildId: string, parentId: string): boolean => {
-      const currentElements = wireframes.find(w => w.id === activeWireframe)?.elements || [];
-      let currentId: string | undefined = potentialChildId;
-      while(currentId) {
-          const el = currentElements.find(e => e.id === currentId);
-          if (!el) return false;
-          if (el.parentId === parentId) return true;
-          currentId = el.parentId;
-      }
-      return false;
-  }
-
 
   const buildTree = (elements: WireframeElement[]): TreeNode[] => {
-    const elementMap = new Map<string, WireframeElement>();
-    elements.forEach(el => elementMap.set(el.id, el));
-
-    const roots: TreeNode[] = [];
-    const nodeMap = new Map<string, TreeNode>();
-
-    elements.forEach(element => {
-      nodeMap.set(element.id, { element, children: [] });
-    });
-
-    elements.forEach(element => {
-      const node = nodeMap.get(element.id)!;
-      if (element.parentId && nodeMap.has(element.parentId)) {
-        const parentNode = nodeMap.get(element.parentId);
-        // Ensure parent is a frame before adding child
-        if (parentNode && parentNode.element.type === 'frame') {
-            parentNode.children.push(node);
-        } else {
-            roots.push(node);
-        }
-      } else {
-        roots.push(node);
-      }
-    });
+    const convertToTreeNodes = (els: WireframeElement[]): TreeNode[] => {
+        return els.map(el => ({
+            element: el,
+            children: el.child ? convertToTreeNodes(el.child) : []
+        }));
+    };
 
     const sortByZIndex = (nodes: TreeNode[]) => nodes.sort((a, b) => (a.element.zIndex || 0) - (b.element.zIndex || 0));
     const sortRecursive = (nodes: TreeNode[]) => {
@@ -337,7 +354,7 @@ export function ElementTree({
       return sorted;
     };
 
-    return sortRecursive(roots);
+    return sortRecursive(convertToTreeNodes(elements));
   };
 
   const renderNode = (node: TreeNode, depth: number = 0): React.ReactNode => {
@@ -517,7 +534,6 @@ export function ElementTree({
     );
   };
 
-  // JSON inspector view (shows nested nodes and preserves its own state)
   const JsonCodeView: React.FC<{
   wireframes: Wireframe[];
   activeWireframe: string;
@@ -527,57 +543,26 @@ export function ElementTree({
 }> = ({ wireframes, activeWireframe, selectedElement, onSelectWireframe, onSelectElement }) => {
   const toggle = (id: string) => setJsonOpenWireframes(prev => ({ ...prev, [id]: !prev[id] }));
 
-    const buildTreeLocal = (elements: WireframeElement[]): TreeNode[] => {
-      const nodeMap = new Map<string, TreeNode>();
-      elements.forEach(el => nodeMap.set(el.id, { element: el, children: [] }));
-      const roots: TreeNode[] = [];
-      elements.forEach(el => {
-        const node = nodeMap.get(el.id)!;
-        if (el.parentId && nodeMap.has(el.parentId)) {
-          const parent = nodeMap.get(el.parentId);
-          if (parent && parent.element.type === 'frame') parent.children.push(node);
-          else roots.push(node);
-        } else roots.push(node);
-      });
-      const sortByZ = (nodes: TreeNode[]) => nodes.sort((a, b) => (a.element.zIndex || 0) - (b.element.zIndex || 0));
-      const recurse = (nodes: TreeNode[]) => {
-        const s = sortByZ(nodes);
-        s.forEach(n => { n.children = recurse(n.children); });
-        return s;
-      };
-      return recurse(roots);
-    };
-
-  const renderNode = (node: TreeNode, depth = 0, wireframeId?: string) => {
-      const el = node.element;
-      const isSelected = selectedElement === el.id;
-      const json = {
-        id: el.id,
-        type: el.type,
-        x: el.x,
-        y: el.y,
-        width: el.width,
-        height: el.height,
-        name: el.name,
-        text: el.text,
-        parentId: el.parentId,
-      };
+  const renderNode = (element: WireframeElement, depth = 0, wireframeId?: string) => {
+      const isSelected = selectedElement === element.id;
+      
+      const getSerializableElement = (el: WireframeElement): any => {
+        const { ...rest } = el;
+        if (rest.child) {
+            rest.child = rest.child.map(getSerializableElement);
+        }
+        return rest;
+      }
 
       return (
-        <div key={el.id} style={{ paddingLeft: depth * 12 }}>
+        <div key={element.id} style={{ paddingLeft: depth * 12 }}>
           <div
-            onClick={(e) => { e.stopPropagation(); console.log('JsonCodeView CLICK element:', el.id, 'in wireframe:', wireframeId); if (wireframeId) setJsonOpenWireframes(prev => ({ ...prev, [wireframeId]: true })); onSelectElement(el.id); }}
+            onClick={(e) => { e.stopPropagation(); if (wireframeId) setJsonOpenWireframes(prev => ({ ...prev, [wireframeId]: true })); onSelectElement(element.id); }}
             className={`cursor-pointer my-2 p-2 rounded border ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-transparent bg-gray-50 hover:border-border'}`}
           >
-            <div className="text-xs text-muted-foreground mb-1">{el.type} — {el.id}</div>
-            <pre className="whitespace-pre-wrap text-[12px] font-mono m-0 p-0">{JSON.stringify(json, null, 2)}</pre>
+            <div className="text-xs text-muted-foreground mb-1">{element.type} — {element.id}</div>
+            <pre className="whitespace-pre-wrap text-[12px] font-mono m-0 p-0">{JSON.stringify(getSerializableElement(element), null, 2)}</pre>
           </div>
-
-          {node.children.length > 0 && (
-            <div>
-              {node.children.map(child => renderNode(child, depth + 1, wireframeId))}
-            </div>
-          )}
         </div>
       );
     };
@@ -585,7 +570,6 @@ export function ElementTree({
     return (
       <div className="p-3 overflow-y-auto h-full">
         {wireframes.map(w => {
-          const tree = buildTreeLocal(w.elements);
           return (
             <div key={w.id} className="mb-4">
               <div className="flex items-center">
@@ -599,8 +583,8 @@ export function ElementTree({
 
               {jsonOpenWireframes[w.id] && (
                 <div className="mt-2 ml-2">
-                  {tree.length === 0 && <div className="text-sm text-muted-foreground">Sem elementos</div>}
-                  {tree.map(node => renderNode(node, 0, w.id))}
+                  {w.elements.length === 0 && <div className="text-sm text-muted-foreground">Sem elementos</div>}
+                  {w.elements.map(node => renderNode(node, 0, w.id))}
                 </div>
               )}
             </div>
