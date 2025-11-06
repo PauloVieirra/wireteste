@@ -421,7 +421,11 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
                   <Transformer
                     ref={trRef}
                     keepRatio={element.type === 'circle'}
-                    enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
+                    rotateEnabled={false}
+                    enabledAnchors={['bottom-right', 'middle-right', 'bottom-center']}
+                    anchorSize={5}
+                    anchorFill={'blue'}
+                    anchorCornerRadius={3}
                     ignoreStroke={true}
                     centeredScaling={false}
                     boundBoxFunc={(oldBox, newBox) => {

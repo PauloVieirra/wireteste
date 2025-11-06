@@ -73,6 +73,7 @@ export default function App() {
   const [viewHistory, setViewHistory] = useState<View[]>([]); // Histórico de visualizações
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const userIdRef = useRef<string | null>(null);
 
 
   const offlineToastShownRef = useRef(false); // Novo ref para controlar o toast offline
@@ -314,6 +315,7 @@ export default function App() {
             role: role,
         };
         setUser(appUser);
+        userIdRef.current = appUser.id;
 
         // Persist user data for offline access
         if (isOnline) { // Only save user to localforage if we know they are valid
@@ -362,21 +364,21 @@ export default function App() {
         }
 
         if (session?.user) {
-          const { error: refreshError } = await supabase.auth.refreshSession();
-          if (refreshError) {
-            console.error('Falha ao atualizar a sessão (online):', refreshError);
-            // This could be a network blip or a real auth error.
-            // Instead of signing out, let's try loading local user as a fallback.
-            const localUser = await localforage.getItem<User>('user');
-            if (localUser) {
-              await handleUserSession(localUser);
-            } else {
-              await supabase.auth.signOut();
-              setUser(null);
-              navigateTo('projects');
-            }
-            return;
-          }
+          // const { error: refreshError } = await supabase.auth.refreshSession();
+          // if (refreshError) {
+          //   console.error('Falha ao atualizar a sessão (online):', refreshError);
+          //   // This could be a network blip or a real auth error.
+          //   // Instead of signing out, let's try loading local user as a fallback.
+          //   const localUser = await localforage.getItem<User>('user');
+          //   if (localUser) {
+          //     await handleUserSession(localUser);
+          //   } else {
+          //     await supabase.auth.signOut();
+          //     setUser(null);
+          //     navigateTo('projects');
+          //   }
+          //   return;
+          // }
           await handleUserSession(session.user);
         } else {
           if (viewParam === 'signup-tester') {
@@ -397,9 +399,13 @@ export default function App() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (testIdFromUrl) return;
-      if (session?.user) {
-        handleUserSession(session.user);
-      } else {
+
+      if (_event === 'SIGNED_IN') {
+        if (session?.user && session.user.id !== userIdRef.current) {
+          handleUserSession(session.user);
+        }
+      } else if (_event === 'SIGNED_OUT') {
+        userIdRef.current = null;
         setUser(null);
         const params = new URLSearchParams(window.location.search);
         if (params.get('view') === 'signup-tester') {
@@ -411,7 +417,7 @@ export default function App() {
     });
 
     return () => { authListener.subscription.unsubscribe(); };
-  }, [isOnline]); // Adicionado isOnline como dependência para re-executar ao mudar o status da conexão
+  }, []); // Removido isOnline da dependência para evitar recargas indesejadas
 
   useEffect(() => {
     if (currentView === 'dashboard') {

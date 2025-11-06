@@ -255,10 +255,19 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const unsavedChangesToastShownRef = useRef(false);
 
   const saveProjectLocally = useCallback((currentProject: Project) => {
-    localStorage.setItem(`wireframe_project_${currentProject.id}`, JSON.stringify(currentProject));
-    hasLocalChangesRef.current = true;
-    setSaveStatus('Atualizar');
-  }, []);
+    try {
+      localStorage.setItem(`wireframe_project_${currentProject.id}`, JSON.stringify(currentProject));
+      hasLocalChangesRef.current = true;
+      setSaveStatus('Atualizar');
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        showToast('Não foi possível salvar as alterações localmente pois o projeto é muito grande. Salve no servidor para não perder as alterações.', 'error');
+        setSaveStatus('Erro ao salvar');
+      } else {
+        console.error("Failed to save project locally", e);
+      }
+    }
+  }, [showToast]);
 
   const updateAndSaveProject = (updatedProject: Project) => {
     setInternalProject(updatedProject);
