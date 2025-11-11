@@ -1,3 +1,89 @@
+export interface WireframeElement {
+  id: string;
+  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon' | 'frame';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text?: string;
+  backgroundColor?: string;
+  textLevel?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p';
+  textColor?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  zIndex?: number;
+  borderWidth?: number;
+  borderColor?: string;
+  borderTopLeftRadius?: number;
+  borderTopRightRadius?: number;
+  borderBottomLeftRadius?: number;
+  borderBottomRightRadius?: number;
+  iconId?: string;
+  iconName?: string;
+  iconComponent?: string;
+  imageSrc?: string;
+  videoSrc?: string;
+  navigationTarget?: string;
+  child?: WireframeElement[];
+  name?: string;
+  opacity?: number;
+  grayscale?: number;
+  // Advanced text properties
+  fontSize?: number;
+  fontWeight?: string | number;
+  fontFamily?: string;
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline' | 'line-through';
+  textBorderColor?: string;
+  textBorderWidth?: number;
+  textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT' | 'WIDTH';
+  // Auto Layout properties for frames
+  layoutMode?: 'none' | 'horizontal' | 'vertical';
+  padding?: number; // Keep for backward compatibility
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  itemSpacing?: number;
+  justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between';
+  alignItems?: 'flex-start' | 'center' | 'flex-end';
+  sourceComponentId?: string;
+  isComponent?: boolean;
+  id_componente?: string;
+}
+
+export interface Wireframe {
+  id: string;
+  name: string;
+  elements: WireframeElement[];
+  width?: number;
+  height?: number;
+}
+
+export interface GridConfig {
+  enabled: boolean;
+  columns: number;
+  gap: number;
+  margin: number;
+  color: 'red';
+  opacity: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  resolution: 'mobile' | 'tablet' | 'desktop' | 'custom';
+  width?: number;
+  height?: number;
+  wireframes: Wireframe[];
+  createdAt: string;
+  updated_at: string;
+  gridConfig?: GridConfig;
+  components?: WireframeElement[];
+  figmaFileKey?: string;
+  figmaToken?: string;
+}
+
 export interface DisplayItem {
   id: string;
   type: 'wireframe' | 'mapa_calor' | 'survey';
@@ -21,17 +107,6 @@ export interface Survey {
   updated_at: string;
 }
 
-export interface Project {
-  id: string;
-  name: string;
-  resolution: 'mobile' | 'tablet' | 'desktop';
-  wireframes: Wireframe[];
-  createdAt: string;
-  updated_at: string;
-  gridConfig?: any;
-  components: any[];
-}
-
 export interface User {
   id: string;
   email: string;
@@ -40,12 +115,6 @@ export interface User {
   projectsCreated: number;
   reportsGenerated: number;
   role: 'admin' | 'user' | 'tester'; // Added 'tester' role
-}
-
-export interface Wireframe {
-  id: string;
-  name: string;
-  elements: any[];
 }
 
 export interface Test {
@@ -77,7 +146,7 @@ export interface Click {
 }
 
 export interface TestSession {
-  id: string;
+  id:string;
   testId: string;
   userName: string;
   userEmail: string;

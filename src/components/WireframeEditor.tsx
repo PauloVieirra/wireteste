@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -9,10 +10,8 @@ import { Slider } from './ui/slider';
 import { Switch } from './ui/switch';
 import { ColorPicker } from './ColorPicker';
 import { FontLevelPicker } from './FontLevelPicker';
-import { TextColorPicker } from './TextColorPicker';
 import { TextAlignPicker } from './TextAlignPicker';
 import { BorderWidthPicker } from './BorderWidthPicker';
-import { BorderColorPicker } from './BorderColorPicker';
 import { DimensionEditor } from './DimensionEditor';
 import { GridSettings } from './GridSettings';
 import { IconLibrary } from './IconLibrary';
@@ -40,6 +39,8 @@ import { Flex, Spin } from 'antd';
 import { useWindowHeight } from '../hooks/useWindowHeight';
 import imgplaceholder from "../assets/image.png";
 import mpplaceholder from "../assets/video.jpg";
+import { CreateComponentDrawer } from './CreateComponentDrawer';
+import { ComponentLibrary } from './ComponentLibrary';
 
 
 const imageplaceholder = imgplaceholder;
@@ -77,83 +78,14 @@ import {
 } from 'lucide-react';
 
 import Frame from './Frame';
+import { Project, User, Wireframe, WireframeElement } from '../types';
 
-interface WireframeElement {
-  id: string;
-  type: 'rectangle' | 'circle' | 'button' | 'text' | 'line' | 'image' | 'video' | 'icon' | 'frame';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  text?: string;
-  backgroundColor?: string;
-  textLevel?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p';
-  textColor?: string;
-  textAlign?: 'left' | 'center' | 'right';
-  zIndex?: number;
-  borderWidth?: number;
-  borderColor?: string;
-  borderTopLeftRadius?: number;
-  borderTopRightRadius?: number;
-  borderBottomLeftRadius?: number;
-  borderBottomRightRadius?: number;
-  iconId?: string;
-  iconName?: string;
-  iconComponent?: string;
-  imageSrc?: string;
-  videoSrc?: string;
-  navigationTarget?: string;
-  child?: WireframeElement[];
-  name?: string;
-  opacity?: number; // Adicionado para controlar a transparência da imagem
-  enhance?: number;
-  // Advanced text properties
-  fontSize?: number;
-  fontWeight?: string | number;
-  fontFamily?: string;
-  fontStyle?: 'normal' | 'italic';
-  textDecoration?: 'none' | 'underline' | 'line-through';
-  textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT';
-  // Auto Layout properties for frames
-  layoutMode?: 'none' | 'horizontal' | 'vertical';
-  padding?: number;
-  itemSpacing?: number;
-}
-
-interface Wireframe {
-  id: string;
-  name: string;
-  elements: WireframeElement[];
-  width?: number;
-  height?: number;
-}
-
-interface GridConfig {
-  enabled: boolean;
-  columns: number;
-  gap: number;
-  margin: number;
-  color: 'red';
-  opacity: number;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  resolution: 'mobile' | 'tablet' | 'desktop' | 'custom';
-  width?: number;
-  height?: number;
-  wireframes: Wireframe[];
-  createdAt: string;
-  gridConfig?: GridConfig;
-  figmaFileKey?: string;
-  figmaToken?: string;
-}
 
 interface WireframeEditorProps {
   project: Project;
   onUpdateProject: (project: Project) => void;
   onBack: () => void;
+  user?: User;
 }
 
 const getFontSize = (element: WireframeElement, resolution: 'mobile' | 'tablet' | 'desktop' | 'custom') => {
@@ -207,7 +139,7 @@ const getElementMinimumSize = (elementType: string) => {
   }
 };
 
-export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeEditorProps) {
+export function WireframeEditor({ project, onUpdateProject, onBack, user }: WireframeEditorProps) {
   const [internalProject, setInternalProject] = useState<Project>(project);
   const [selectedTool, setSelectedTool] = useState<string>('select');
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
@@ -236,6 +168,10 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const windowHeight = useWindowHeight();
   const topBarRef = useRef<HTMLDivElement>(null);
   const [topBarHeight, setTopBarHeight] = useState(0);
+  const [isCreateComponentDrawerOpen, setIsCreateComponentDrawerOpen] = useState(false);
+  const [publishedComponentForSelected, setPublishedComponentForSelected] = useState<any | null>(null);
+  const [elementDisplayNameForDrawer, setElementDisplayNameForDrawer] = useState<string | null>(null);
+
 
   useEffect(() => {
     if (topBarRef.current) {
@@ -366,41 +302,77 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
   const updateElementProperties = useCallback((elementId: string, props: Partial<WireframeElement>) => {
     triggerUnsyncedState();
 
-    const updateRecursively = (elements: WireframeElement[], id: string, properties: Partial<WireframeElement>): WireframeElement[] => {
-      return elements.map(el => {
-        if (el.id === id) {
-          const updatedEl = { ...el, ...properties };
+    setInternalProject(currentProject => {
+      const updateRecursively = (elements: WireframeElement[], id: string, properties: Partial<WireframeElement>): WireframeElement[] => {
+        return elements.map(el => {
+          if (el.id === id) {
+            
+            const newProps = { ...properties };
+            const elementForCalcs = { ...el, ...newProps };
 
-          if (updatedEl.type === 'icon') {
-            if (properties.width !== undefined) {
-              updatedEl.width = Math.max(14, properties.width);
+            const hasTextChange = newProps.text !== undefined && newProps.text !== el.text;
+            const hasStyleChange = newProps.fontSize !== undefined || newProps.fontFamily !== undefined || newProps.fontStyle !== undefined || newProps.textAutoResize !== undefined;
+
+            if (elementForCalcs.type === 'text' && (hasTextChange || hasStyleChange) && elementForCalcs.textAutoResize && elementForCalcs.textAutoResize !== 'NONE') {
+                const tempText = new Konva.Text({
+                    text: elementForCalcs.text,
+                    fontSize: getFontSize(elementForCalcs, currentProject.resolution),
+                    fontFamily: getFontFamilyCSS(elementForCalcs.fontFamily || 'inter'),
+                    fontStyle: elementForCalcs.fontStyle || 'normal',
+                    lineHeight: elementForCalcs.lineHeight,
+                    letterSpacing: elementForCalcs.letterSpacing,
+                    // For WIDTH and WIDTH_AND_HEIGHT, we let the width be calculated automatically.
+                    // For HEIGHT, we use the element's current width to wrap text and calculate new height.
+                    width: elementForCalcs.textAutoResize === 'HEIGHT' ? elementForCalcs.width : undefined, 
+                });
+
+                if (elementForCalcs.textAutoResize === 'WIDTH_AND_HEIGHT') {
+                    newProps.width = tempText.width();
+                    newProps.height = tempText.height();
+                } else if (elementForCalcs.textAutoResize === 'HEIGHT') {
+                    newProps.height = tempText.height();
+                } else if (elementForCalcs.textAutoResize === 'WIDTH') {
+                    newProps.width = tempText.width();
+                    // Also ensure height adjusts for new lines
+                    newProps.height = tempText.height();
+                }
             }
-            if (properties.height !== undefined) {
-              updatedEl.height = Math.max(14, properties.height);
+
+            const updatedEl = { ...el, ...newProps };
+
+            if (updatedEl.type === 'icon') {
+              if (properties.width !== undefined) {
+                updatedEl.width = Math.max(14, properties.width);
+              }
+              if (properties.height !== undefined) {
+                updatedEl.height = Math.max(14, properties.height);
+              }
             }
+            return updatedEl;
           }
-          return updatedEl;
-        }
-        if (el.child) {
-          return { ...el, child: updateRecursively(el.child, id, properties) };
-        }
-        return el;
-      });
-    };
+          if (el.child) {
+            return { ...el, child: updateRecursively(el.child, id, properties) };
+          }
+          return el;
+        });
+      };
 
-    const updatedProject = {
-      ...internalProject,
-      wireframes: internalProject.wireframes.map(w =>
-        activeWireframe !== 'none' && w.id === activeWireframe
-          ? {
-              ...w,
-              elements: updateRecursively(w.elements, elementId, props)
-            }
-          : w
-      )
-    };
-    updateAndSaveProject(updatedProject);
-  }, [internalProject, activeWireframe]);
+      const updatedProject = {
+        ...currentProject,
+        wireframes: currentProject.wireframes.map(w =>
+          activeWireframe !== 'none' && w.id === activeWireframe
+            ? {
+                ...w,
+                elements: updateRecursively(w.elements, elementId, props)
+              }
+            : w
+        )
+      };
+      
+      saveProjectLocally(updatedProject);
+      return updatedProject;
+    });
+  }, [activeWireframe, saveProjectLocally]);
 
   const updateElementProperty = useCallback((elementId: string, property: string, value: any) => {
     updateElementProperties(elementId, { [property]: value });
@@ -466,21 +438,29 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
     const { element, parent } = result;
     const propertiesToUpdate: Partial<WireframeElement> = {};
-
-    const parentPadding = parent ? (parent.padding || 0) : 0;
-
-    if (axis === 'horizontal') {
-        const parentWidth = parent ? parent.width : canvasDimensions.width;
-        propertiesToUpdate.x = parent ? parentPadding : 0;
-        const newWidth = parent ? parentWidth - (parentPadding * 2) : parentWidth;
-        propertiesToUpdate.width = Math.max(24, newWidth);
-    }
-
-    if (axis === 'vertical') {
-        const parentHeight = parent ? parent.height : canvasDimensions.height;
-        propertiesToUpdate.y = parent ? parentPadding : 0;
-        const newHeight = parent ? parentHeight - (parentPadding * 2) : parentHeight;
-        propertiesToUpdate.height = Math.max(24, newHeight);
+    
+    if (parent) {
+        // Logic for when inside a parent frame
+        const parentPadding = parent.padding || 0;
+        if (axis === 'horizontal') {
+            propertiesToUpdate.x = parentPadding;
+            propertiesToUpdate.width = Math.max(24, parent.width - (parentPadding * 2));
+        }
+        if (axis === 'vertical') {
+            propertiesToUpdate.y = parentPadding;
+            propertiesToUpdate.height = Math.max(24, parent.height - (parentPadding * 2));
+        }
+    } else {
+        // Logic for root canvas
+        const GAP = 2; // Use a 2px gap to be safe
+        if (axis === 'horizontal') {
+            propertiesToUpdate.x = GAP;
+            propertiesToUpdate.width = canvasDimensions.width - (GAP * 2);
+        }
+        if (axis === 'vertical') {
+            propertiesToUpdate.y = GAP;
+            propertiesToUpdate.height = canvasDimensions.height - (GAP * 2);
+        }
     }
 
     if (Object.keys(propertiesToUpdate).length > 0) {
@@ -968,6 +948,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       text: toolType === 'text' ? 'Texto' : toolType === 'button' ? 'Button' : undefined,
       backgroundColor: toolType === 'text' ? 'transparent' : '#ffffff',
       textLevel: toolType === 'text' ? 'h3' : toolType === 'button' ? 'p' : undefined,
+      textAutoResize: toolType === 'text' ? 'WIDTH_AND_HEIGHT' : undefined,
       textColor: 'var(--foreground)',
       textAlign: 'center',
       zIndex: 0,
@@ -978,6 +959,19 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
       iconName: toolType === 'icon' ? 'Star' : undefined,
       grayscale: (toolType === 'image' || toolType === 'video') ? 1 : undefined,
     };
+
+    if (newElement.type === 'text' && newElement.text) {
+        const tempText = new Konva.Text({
+            text: newElement.text,
+            fontSize: getFontSize(newElement, internalProject.resolution),
+            fontFamily: getFontFamilyCSS(newElement.fontFamily || 'inter'),
+            fontStyle: newElement.fontStyle || 'normal',
+            lineHeight: newElement.lineHeight,
+            letterSpacing: newElement.letterSpacing,
+        });
+        newElement.width = tempText.width();
+        newElement.height = tempText.height();
+    }
 
     const updatedProject = {
       ...internalProject,
@@ -1181,6 +1175,67 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     showToast('Elemento excluído!', 'success');
   };
 
+  const handleManageComponentClick = async () => {
+    if (!selectedElementData) return;
+
+    setElementDisplayNameForDrawer(selectedElementData.name || selectedElementData.type);
+
+    if (selectedElementData.id_componente) {
+        setSaveStatus('Verificando...');
+        try {
+            const { data, error } = await supabase
+                .from('biblioteca_componentes')
+                .select('*')
+                .eq('id', selectedElementData.id_componente)
+                .single();
+
+            if (error) throw error;
+            
+            setPublishedComponentForSelected(data);
+        } catch (error) {
+            showToast('Erro ao buscar dados do componente publicado.', 'error');
+            console.error('Error fetching component data:', error);
+            setPublishedComponentForSelected(null); // Fallback
+        } finally {
+            setSaveStatus('Atualizado');
+        }
+    } else {
+        setPublishedComponentForSelected(null);
+    }
+
+    setIsCreateComponentDrawerOpen(true);
+  };
+
+  const handleComponentCreated = (newComponent: any) => {
+      if (!selectedElement) return;
+      updateElementProperties(selectedElement, { 
+          id_componente: newComponent.id,
+          sourceComponentId: newComponent.id,
+          name: newComponent.name,
+      });
+      setPublishedComponentForSelected(newComponent);
+      showToast('Componente publicado e vinculado com sucesso!', 'success');
+  };
+
+  const handleComponentUpdated = (updatedComponent: any) => {
+      if (!selectedElement) return;
+      updateElementProperties(selectedElement, { 
+          name: updatedComponent.name,
+      });
+      setPublishedComponentForSelected(updatedComponent);
+      showToast('Componente atualizado com sucesso!', 'success');
+  };
+
+  const handleComponentUnpublished = () => {
+      if (!selectedElement) return;
+      updateElementProperties(selectedElement, { 
+          id_componente: undefined,
+          sourceComponentId: undefined,
+      });
+      setPublishedComponentForSelected(null);
+      showToast('Componente desvinculado com sucesso!', 'success');
+  };
+
   const handleCanvasMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.target === e.target.getStage()) {
       if (!canvasContainerRef.current) return;
@@ -1309,9 +1364,6 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
 
     if (!element) return;
 
-    const clampedX = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
-    const clampedY = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
-
     const getAllFramesWithAbsPos = (elements: WireframeElement[], parentPos = { x: 0, y: 0 }): (WireframeElement & { absX: number, absY: number })[] => {
         let frames: (WireframeElement & { absX: number, absY: number })[] = [];
         for (const el of elements) {
@@ -1330,8 +1382,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     const allFrames = getAllFramesWithAbsPos(elementsAfterRemoval).filter(f => f.id !== elementId);
 
     let newParent: (WireframeElement & { absX: number, absY: number }) | undefined = undefined;
-    const elementCenterX = clampedX + element.width / 2;
-    const elementCenterY = clampedY + element.height / 2;
+    const elementCenterX = newX + element.width / 2;
+    const elementCenterY = newY + element.height / 2;
 
     for (const frame of allFrames) {
       if (
@@ -1348,8 +1400,18 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     let updatedElement = { ...element };
 
     if (newParent) {
-        updatedElement.x = clampedX - newParent.absX;
-        updatedElement.y = clampedY - newParent.absY;
+        const parentPadding = newParent.padding || 0;
+        
+        const parentContentX = newParent.absX + parentPadding;
+        const parentContentY = newParent.absY + parentPadding;
+        const parentContentWidth = newParent.width - (parentPadding * 2);
+        const parentContentHeight = newParent.height - (parentPadding * 2);
+
+        const clampedAbsX = Math.max(parentContentX, Math.min(newX, parentContentX + parentContentWidth - element.width));
+        const clampedAbsY = Math.max(parentContentY, Math.min(newY, parentContentY + parentContentHeight - element.height));
+
+        updatedElement.x = clampedAbsX - newParent.absX;
+        updatedElement.y = clampedAbsY - newParent.absY;
         
         const addElementToParent = (elements: WireframeElement[], parentId: string, childToAdd: WireframeElement): WireframeElement[] => {
             return elements.map(el => {
@@ -1364,8 +1426,8 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
         };
         finalElements = addElementToParent(finalElements, newParent.id, updatedElement);
     } else {
-        updatedElement.x = clampedX;
-        updatedElement.y = clampedY;
+        updatedElement.x = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
+        updatedElement.y = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
         finalElements = [...finalElements, updatedElement];
     }
 
@@ -1379,7 +1441,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
     };
     updateAndSaveProject(updatedProject);
 
-}, [internalProject, activeWireframe, canvasDimensions]);
+}, [internalProject, activeWireframe, canvasDimensions, updateAndSaveProject]);
 
   const handleReparentElement = useCallback((elementId: string, newParentId: string | null, newX: number, newY: number) => {
     if (!currentWireframe) return;
@@ -1461,93 +1523,60 @@ export function WireframeEditor({ project, onUpdateProject, onBack }: WireframeE
         return null;
     }
 
-    const getElementPath = (elements: WireframeElement[], id: string): WireframeElement[] | null => {
-        const find = (currentElements: WireframeElement[], targetId: string, path: WireframeElement[]): WireframeElement[] | null => {
-            for (const el of currentElements) {
-                const newPath = [...path, el];
-                if (el.id === targetId) return newPath;
-                if (el.child) {
-                    const found = find(el.child, targetId, newPath);
-                    if (found) return found;
-                }
-            }
-            return null;
-        }
-        return find(elements, id, []);
-    }
-
-    const getAbsolutePosition = (path: WireframeElement[]): {x: number, y: number} => {
-        return path.reduce((pos, el) => ({ x: pos.x + el.x, y: pos.y + el.y }), { x: 0, y: 0 });
-    }
-
     const found = findElementWithParent(currentWireframe.elements, elementId);
     if (!found) return;
-    const { element, parent: parentFrame } = found;
-
-    // Debug: log transform inputs and current container scroll to investigate parent div shifts
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[WireframeEditor] handleElementTransformEnd start', { elementId, newX, newY, newWidth, newHeight, selectedElement, parentFrameId: parentFrame?.id });
-      if (canvasContainerRef.current) {
-        // eslint-disable-next-line no-console
-        console.debug('[WireframeEditor] canvas container scroll', { left: canvasContainerRef.current.scrollLeft, top: canvasContainerRef.current.scrollTop });
-      }
-    } catch (err) {
-      // ignore
-    }
+    const { element, parent } = found;
 
     const minSize = getElementMinimumSize(element.type);
-    let finalWidth = Math.max(minSize, newWidth);
-    let finalHeight = Math.max(minSize, newHeight);
-    let finalX = newX;
-    let finalY = newY;
 
-    let container = { x: 0, y: 0, width: canvasDimensions.width, height: canvasDimensions.height, padding: 0 };
+    let x = Math.round(newX);
+    let y = Math.round(newY);
+    let width = Math.max(minSize, Math.round(newWidth));
+    let height = Math.max(minSize, Math.round(newHeight));
 
-    if (parentFrame) {
-        const parentPath = getElementPath(currentWireframe.elements, parentFrame.id);
-        const parentAbsPos = parentPath ? getAbsolutePosition(parentPath) : { x: 0, y: 0 };
-        container = {
-            x: parentAbsPos.x,
-            y: parentAbsPos.y,
-            width: parentFrame.width,
-            height: parentFrame.height,
-            padding: parentFrame.padding || 0
-        };
+    const bounds = {
+        x1: parent ? (parent.padding || 0) : 0,
+        y1: parent ? (parent.padding || 0) : 0,
+        x2: parent ? parent.width - (parent.padding || 0) : canvasDimensions.width,
+        y2: parent ? parent.height - (parent.padding || 0) : canvasDimensions.height,
+    };
+
+    if (x < bounds.x1) {
+        width = width + x - bounds.x1;
+        x = bounds.x1;
+    }
+    if (y < bounds.y1) {
+        height = height + y - bounds.y1;
+        y = bounds.y1;
+    }
+    if (x + width > bounds.x2) {
+        width = bounds.x2 - x;
+    }
+    if (y + height > bounds.y2) {
+        height = bounds.y2 - y;
     }
 
-    // Clamp width and height
-    finalWidth = Math.min(finalWidth, container.width - container.padding * 2);
-    finalHeight = Math.min(finalHeight, container.height - container.padding * 2);
+    const propsToUpdate: Partial<WireframeElement> = {
+        x,
+        y,
+        width: Math.max(minSize, width),
+        height: Math.max(minSize, height),
+    };
 
-    // Clamp position
-    finalX = Math.max(container.x + container.padding, Math.min(finalX, container.x + container.width - finalWidth - container.padding));
-    finalY = Math.max(container.y + container.padding, Math.min(finalY, container.y + container.height - finalHeight - container.padding));
+    if (element.type === 'text') {
+        const widthChanged = Math.round(newWidth) !== Math.round(element.width);
+        const heightChanged = Math.round(newHeight) !== Math.round(element.height);
 
-    // Convert back to relative coordinates if there is a parent
-    let relativeX = finalX;
-    let relativeY = finalY;
-    if (parentFrame) {
-        const parentPath = getElementPath(currentWireframe.elements, parentFrame.id);
-        const parentAbsPos = parentPath ? getAbsolutePosition(parentPath) : { x: 0, y: 0 };
-        relativeX = finalX - parentAbsPos.x;
-        relativeY = finalY - parentAbsPos.y;
+        if (widthChanged) {
+            propsToUpdate.textAutoResize = 'HEIGHT'; 
+        } else if (heightChanged) {
+            propsToUpdate.textAutoResize = 'NONE';
+        }
     }
+    
+    updateElementProperties(elementId, propsToUpdate);
 
-    // Debug: log computed relative position and size before saving
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[WireframeEditor] handleElementTransformEnd computed', { relativeX, relativeY, finalWidth, finalHeight });
-    } catch (err) {}
-
-    updateElementProperties(elementId, {
-      x: Math.round(relativeX),
-      y: Math.round(relativeY),
-      width: Math.round(finalWidth),
-      height: Math.round(finalHeight),
-    });
-
-  }, [internalProject, activeWireframe, canvasDimensions, getElementMinimumSize, updateFrameLayout]);
+  }, [currentWireframe, updateElementProperties, canvasDimensions]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && selectedElement) {
@@ -1904,7 +1933,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
     {saveStatus === 'Salvando...' && <Loader2 className="w-4 h-4 animate-spin" />}
     {saveStatus === 'Atualizar' && <Save className="w-4 h-4" />}
     {saveStatus === 'Erro ao salvar' && <AlertCircle className="w-4 h-4" />}
-    {saveStatus === 'Atualizado' && <AlertCircle className="w-4 h-4" />}
+    {saveStatus === 'Atualizado' && <Check className="w-4 h-4" />}
 
     {/* Texto dinâmico */}
     {saveStatus === 'Atualizar'
@@ -2091,6 +2120,28 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                         </div>
                       </div>
 
+                      <ComponentLibrary onAddComponent={(component) => {
+                        // insert component into current wireframe canvas using componente_data
+                        if (!currentWireframe) return;
+                        triggerUnsyncedState();
+                        const elData = component.componente_data || component;
+                        const newEl: any = {
+                          ...elData,
+                          id: Date.now().toString(),
+                        };
+
+                        const updatedProject = {
+                          ...internalProject,
+                          wireframes: internalProject.wireframes.map(w =>
+                            w.id === activeWireframe
+                              ? { ...w, elements: [...w.elements, newEl] }
+                              : w
+                          )
+                        };
+                        updateAndSaveProject(updatedProject);
+                        setSelectedElement(newEl.id);
+                      }} />
+
                       <IconLibrary onSelectIcon={(iconName, iconComponent) => addIconFromLibrary(iconName)} />
 
                       <div>
@@ -2104,12 +2155,49 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                     <TabsContent value="properties" className="flex-1 p-4 overflow-y-auto">
                       {selectedElementData ? (
                         <div className="space-y-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-lg font-semibold capitalize">
+                              {selectedElementData.name || selectedElementData.type}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <Button variant="outline" size="sm" onClick={handleManageComponentClick}>
+                                <Layers className="w-4 h-4 mr-2" />
+                                Componente
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={handleDeleteSelectedElement}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <hr className="my-4" />
                           <div>
                             <Label className="text-sm font-medium">Elemento Selecionado</Label>
                             <p className="text-sm text-muted-foreground capitalize">{selectedElementData.type}</p>
                           </div>
 
                           <DimensionEditor element={selectedElementData} onChange={(property, value) => updateElementProperty(selectedElementData.id, property, value)} canvasDimensions={canvasDimensions} resolution={internalProject.resolution} />
+
+                          {selectedElementData.type === 'text' && (
+                            <div className="space-y-2">
+                                <Label>Ajuste automático</Label>
+                                <Select
+                                    value={selectedElementData.textAutoResize || 'NONE'}
+                                    onValueChange={(value) => {
+                                        updateElementProperty(selectedElementData.id, 'textAutoResize', value as any);
+                                    }}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o modo de ajuste" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="NONE">Fixo</SelectItem>
+                                        <SelectItem value="WIDTH">Hug Largura</SelectItem>
+                                        <SelectItem value="HEIGHT">Hug Altura</SelectItem>
+                                        <SelectItem value="WIDTH_AND_HEIGHT">Hug Ambos</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                          )}
 
                           {selectedElementData.type === 'image' && (
                             <>
@@ -2124,7 +2212,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                                   max={1}
                                   step={0.1}
                                   value={[selectedElementData.grayscale ?? 1]}
-                                  onValueChange={(value) => updateElementProperties(selectedElementData.id, 'grayscale', value[0])}
+                                  onValueChange={(value) => updateElementProperties(selectedElementData.id, { grayscale: value[0] })}
                                 />
                               </div>
                             </>
@@ -2138,7 +2226,7 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                                 max={1}
                                 step={0.1}
                                 value={[selectedElementData.grayscale ?? 1]}
-                                onValueChange={(value) => updateElementProperties(selectedElementData.id, 'grayscale', value[0])}
+                                onValueChange={(value) => updateElementProperties(selectedElementData.id, { grayscale: value[0] })}
                               />
                             </div>
                           )}
@@ -2156,12 +2244,35 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                             <>
                               <div>
                                 <Label htmlFor="element-text">Texto</Label>
-                                <Input id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
+                                <Textarea id="element-text" value={selectedElementData.text || ''} onChange={(e) => updateElementProperty(selectedElementData.id, 'text', e.target.value)} />
                               </div>
 
                               <FontLevelPicker value={selectedElementData.textLevel || 'p'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textLevel', value)} resolution={internalProject.resolution} />
 
-                              <TextColorPicker value={selectedElementData.textColor || 'var(--foreground)'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)} />
+                              <Tabs defaultValue="fill" className="w-full pt-2">
+                                <TabsList className="grid w-full grid-cols-2">
+                                  <TabsTrigger value="fill">Preenchimento</TabsTrigger>
+                                  <TabsTrigger value="border">Borda</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="fill" className="pt-2">
+                                  <ColorPicker
+                                    label="Cor do Preenchimento"
+                                    value={selectedElementData.textColor || 'var(--foreground)'}
+                                    onChange={(value) => updateElementProperty(selectedElementData.id, 'textColor', value)}
+                                  />
+                                </TabsContent>
+                                <TabsContent value="border" className="pt-2 space-y-2">
+                                  <ColorPicker
+                                    label="Cor da Borda"
+                                    value={selectedElementData.textBorderColor || 'transparent'}
+                                    onChange={(value) => updateElementProperty(selectedElementData.id, 'textBorderColor', value)}
+                                  />
+                                  <BorderWidthPicker 
+                                    value={selectedElementData.textBorderWidth || 0} 
+                                    onChange={(value) => updateElementProperty(selectedElementData.id, 'textBorderWidth', value)} 
+                                  />
+                                </TabsContent>
+                              </Tabs>
 
                               <TextAlignPicker value={selectedElementData.textAlign || 'left'} onChange={(value) => updateElementProperty(selectedElementData.id, 'textAlign', value)} />
                             </>
@@ -2191,13 +2302,31 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                           </div>
 
                           {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
-                            <ColorPicker label="Cor de Fundo" value={selectedElementData.backgroundColor || '#ffffff'} onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)} />
+                            <Tabs defaultValue="fill" className="w-full">
+                              <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="fill">Cor de Fundo</TabsTrigger>
+                                <TabsTrigger value="border">Cor da Borda</TabsTrigger>
+                              </TabsList>
+                              <TabsContent value="fill" className="pt-2">
+                                <ColorPicker
+                                  label=""
+                                  value={selectedElementData.backgroundColor || '#ffffff'}
+                                  onChange={(value) => updateElementProperty(selectedElementData.id, 'backgroundColor', value)}
+                                />
+                              </TabsContent>
+                              <TabsContent value="border" className="pt-2">
+                                <ColorPicker
+                                  label=""
+                                  value={selectedElementData.borderColor || '#d1d5db'}
+                                  onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)}
+                                />
+                              </TabsContent>
+                            </Tabs>
                           )}
 
                           {selectedElementData.type !== 'text' && selectedElementData.type !== 'line' && (
                             <>
                               <BorderWidthPicker value={selectedElementData.borderWidth || 0} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderWidth', value)} />
-                              <BorderColorPicker value={selectedElementData.borderColor || '#d1d5db'} onChange={(value) => updateElementProperty(selectedElementData.id, 'borderColor', value)} />
                             </>
                           )}
 
@@ -2368,6 +2497,16 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
         onImport={handleConfirmFigmaImport}
       />
       <PublishModal isOpen={isPublishModalOpen} onClose={() => setIsPublishModalOpen(false)} wireframes={internalProject.wireframes} onPublish={handlePublish} />
+<CreateComponentDrawer
+        isOpen={isCreateComponentDrawerOpen}
+        onClose={() => setIsCreateComponentDrawerOpen(false)}
+        elementData={selectedElementData}
+        user={user}
+        publishedComponent={publishedComponentForSelected}
+        onComponentCreated={handleComponentCreated}
+        onComponentUpdated={handleComponentUpdated}
+        onComponentUnpublished={handleComponentUnpublished}
+      />
     </div>
   );
 }

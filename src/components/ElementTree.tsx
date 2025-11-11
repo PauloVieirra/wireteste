@@ -101,11 +101,7 @@ const getElementIcon = (type: string) => {
   }
 };
 
-const getElementName = (element: WireframeElement) => {
-  if (element.name && element.name.trim()) return truncateName(element.name, 40);
-  if (element.text) return truncateName(element.text, 40);
-  return `${element.type}`;
-};
+// getElementName is computed per-component so it can use generatedNames state
 
 export function ElementTree({ 
   wireframes,
@@ -119,6 +115,47 @@ export function ElementTree({
   onDeleteElement,
   onReparentElement
 }: ElementTreeProps) {
+  const [generatedNames, setGeneratedNames] = useState<Record<string,string>>({});
+
+  useEffect(() => {
+    const wf = wireframes.find(w => w.id === activeWireframe);
+    if (!wf) {
+      setGeneratedNames({});
+      return;
+    }
+
+    const counters: Record<string, number> = {};
+    const map: Record<string, string> = {};
+
+    const traverse = (elements: WireframeElement[]) => {
+      for (const el of elements) {
+        // determine display name
+        let nameToUse: string | null = null;
+        if (el.name && el.name.trim()) {
+          nameToUse = el.name.trim();
+        } else if (el.text && String(el.text).trim()) {
+          nameToUse = String(el.text).trim();
+        } else {
+          const key = el.type || 'element';
+          const idx = counters[key] ?? 0;
+          nameToUse = `${key}_${idx}`;
+          counters[key] = idx + 1;
+        }
+        map[el.id] = nameToUse;
+        if (el.child && el.child.length > 0) traverse(el.child);
+      }
+    };
+
+    traverse(wf.elements || []);
+    setGeneratedNames(map);
+  }, [wireframes, activeWireframe]);
+
+  const getElementName = (element: WireframeElement) => {
+    if (element.name && element.name.trim()) return truncateName(element.name, 40);
+    if (element.text) return truncateName(String(element.text), 40);
+    if (generatedNames[element.id]) return truncateName(generatedNames[element.id], 40);
+    return `${element.type}`;
+  };
   const [expandedWireframes, setExpandedWireframes] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
