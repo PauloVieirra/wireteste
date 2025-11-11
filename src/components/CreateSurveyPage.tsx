@@ -134,6 +134,57 @@ export function CreateSurveyPage({ onBack, survey }: CreateSurveyPageProps) {
     }
   };
 
+  // Draft helpers: save, load, discard and clear draft from localStorage
+  const saveDraft = () => {
+    try {
+      const draft: SurveyDraft = { name, type, questions };
+      localStorage.setItem(SURVEY_DRAFT_KEY, JSON.stringify(draft));
+      showToast('Rascunho salvo localmente.', 'success');
+    } catch (err) {
+      console.error('Failed to save draft:', err);
+      showToast('Erro ao salvar rascunho.', 'error');
+    }
+  };
+
+  const loadDraft = () => {
+    try {
+      const raw = localStorage.getItem(SURVEY_DRAFT_KEY);
+      if (!raw) {
+        setShowDraftDialog(false);
+        showToast('Nenhum rascunho encontrado.', 'info');
+        return;
+      }
+      const draft: SurveyDraft = JSON.parse(raw);
+      setName(draft.name || '');
+      setType(draft.type || 'qualitativa');
+      setQuestions(draft.questions || []);
+      setShowDraftDialog(false);
+      showToast('Rascunho carregado.', 'success');
+    } catch (err) {
+      console.error('Failed to load draft:', err);
+      showToast('Erro ao carregar rascunho.', 'error');
+    }
+  };
+
+  const discardDraft = () => {
+    try {
+      localStorage.removeItem(SURVEY_DRAFT_KEY);
+      setShowDraftDialog(false);
+      showToast('Rascunho descartado.', 'success');
+    } catch (err) {
+      console.error('Failed to discard draft:', err);
+      showToast('Erro ao descartar rascunho.', 'error');
+    }
+  };
+
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(SURVEY_DRAFT_KEY);
+    } catch (err) {
+      console.error('Failed to clear draft:', err);
+    }
+  };
+
   const renderQuestionEditor = (question: Question) => {
     switch (question.type) {
       case 'multipla_escolha':
