@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { Switch } from './ui/switch';
+import { useUndoHistory } from '../hooks/useUndoHistory';
 import { ColorPicker } from './ColorPicker';
 import { FontLevelPicker } from './FontLevelPicker';
 import { TextAlignPicker } from './TextAlignPicker';
@@ -21,8 +22,10 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resiz
 import { TextEditor } from './TextEditor';
 import { BorderRadiusPicker } from './BorderRadiusPicker';
 import { PaddingPicker } from './PaddingPicker';
+import { AlignmentPicker } from './AlignmentPicker';
 import { PublishModal } from './PublishModal';
 import { LibraryModal } from './LibraryModal';
+import { ImageCropModal } from './ImageCropModal';
 import FigmaImportModal from './FigmaImportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../utils/supabase/client';
@@ -140,8 +143,46 @@ const getElementMinimumSize = (elementType: string) => {
   }
 };
 
+// Helper function to get canvas dimensions based on resolution
+const getDimensionsForResolution = (resolution: 'mobile' | 'tablet' | 'desktop' | 'custom', projectWidth?: number, projectHeight?: number) => {
+  switch (resolution) {
+    case 'mobile': return { width: 375, height: 812 };
+    case 'tablet': return { width: 768, height: 1024 };
+    case 'desktop': return { width: 1440, height: 900 };
+    case 'custom': return { width: projectWidth || 1920, height: projectHeight || 1080 };
+    default: return { width: 1920, height: 1080 };
+  }
+};
+
+// Helper function to ensure all wireframes have width and height
+const normalizeWireframesDimensions = (project: Project): Project => {
+  const normalizedWireframes = project.wireframes.map(wireframe => {
+    // If wireframe already has width/height, return as-is
+    if (wireframe.width && wireframe.height) {
+      return wireframe;
+    }
+
+    // Get dimensions from project resolution settings or use defaults
+    const { width, height } = getDimensionsForResolution(project.resolution, project.width, project.height);
+    
+    return {
+      ...wireframe,
+      width: wireframe.width || width,
+      height: wireframe.height || height,
+    };
+  });
+
+  return {
+    ...project,
+    wireframes: normalizedWireframes,
+  };
+};
+
 export function WireframeEditor({ project, onUpdateProject, onBack, user }: WireframeEditorProps) {
-  const [internalProject, setInternalProject] = useState<Project>(project);
+  // Memoize normalized project to prevent history reset on every render
+  const normalizedProject = useMemo(() => normalizeWireframesDimensions(project), [project]);
+  
+  const { state: internalProject, setState: setInternalProject, undo, canUndo } = useUndoHistory<Project>(normalizedProject, 6);
   const [selectedTool, setSelectedTool] = useState<string>('select');
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [activeWireframe, setActiveWireframe] = useState<string>('none');
@@ -158,6 +199,7 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
   const [newWireframeName, setNewWireframeName] = useState('');
   const [copiedElement, setCopiedElement] = useState<WireframeElement | null>(null);
   const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
+  const [isImageCropOpen, setIsImageCropOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
   const [isFigmaImportModalOpen, setIsFigmaImportModalOpen] = useState(false);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
@@ -188,8 +230,27 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
   const scrollTarget = useRef({ left: 0, top: 0, apply: false });
   const { showToast } = useToast();
 
+  // Listener para Ctrl+Z (desfazer)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+        event.preventDefault();
+        if (canUndo) {
+          undo();
+          showToast('Ação desfeita', 'info');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [canUndo, undo, showToast]);
+
   const hasLocalChangesRef = useRef(false);
   const unsavedChangesToastShownRef = useRef(false);
+  const projectIdRef = useRef(project.id);
 
   const saveProjectLocally = useCallback((currentProject: Project) => {
     try {
@@ -212,12 +273,12 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
   };
 
   useEffect(() => {
-    const localProjectJson = localStorage.getItem(`wireframe_project_${project.id}`);
+    const localProjectJson = localStorage.getItem(`wireframe_project_${projectIdRef.current}`);
     if (localProjectJson) {
       try {
         const localProject = JSON.parse(localProjectJson);
-        if (JSON.stringify(localProject.wireframes) !== JSON.stringify(project.wireframes) ||
-            JSON.stringify(localProject.gridConfig) !== JSON.stringify(project.gridConfig)) {
+        if (JSON.stringify(localProject.wireframes) !== JSON.stringify(normalizedProject.wireframes) ||
+            JSON.stringify(localProject.gridConfig) !== JSON.stringify(normalizedProject.gridConfig)) {
           setInternalProject(localProject);
           setGridConfig(localProject.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
           setSaveStatus('Atualizar');
@@ -227,24 +288,24 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
             unsavedChangesToastShownRef.current = true;
           }
         } else {
-          setInternalProject(project);
-          setGridConfig(project.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
+          setInternalProject(normalizedProject);
+          setGridConfig(normalizedProject.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
           setSaveStatus('Atualizado');
           hasLocalChangesRef.current = false;
-          localStorage.removeItem(`wireframe_project_${project.id}`);
+          localStorage.removeItem(`wireframe_project_${projectIdRef.current}`);
         }
       } catch (e) {
         console.error("Error loading project from localStorage:", e);
-        setInternalProject(project);
-        localStorage.removeItem(`wireframe_project_${project.id}`);
+        setInternalProject(normalizedProject);
+        localStorage.removeItem(`wireframe_project_${projectIdRef.current}`);
       }
     } else {
-      setInternalProject(project);
-      setGridConfig(project.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
+      setInternalProject(normalizedProject);
+      setGridConfig(normalizedProject.gridConfig || { enabled: false, columns: 12, gap: 16, margin: 24, color: 'red', opacity: 0.1 });
       setSaveStatus('Atualizado');
       hasLocalChangesRef.current = false;
     }
-  }, [project, showToast]);
+  }, []);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -277,17 +338,9 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
     }
   };
 
-  const currentWireframe = activeWireframe !== 'none' ? internalProject.wireframes.find(w => w.id === activeWireframe) : null;
-
-  const getDimensionsForResolution = (resolution: 'mobile' | 'tablet' | 'desktop' | 'custom', projectWidth?: number, projectHeight?: number) => {
-    switch (resolution) {
-      case 'mobile': return { width: 375, height: 812 };
-      case 'tablet': return { width: 768, height: 1024 };
-      case 'desktop': return { width: 1440, height: 900 };
-      case 'custom': return { width: projectWidth || 1920, height: projectHeight || 1080 };
-      default: return { width: 1920, height: 1080 };
-    }
-  };
+  const currentWireframe = activeWireframe !== 'none' && internalProject?.wireframes 
+    ? internalProject.wireframes.find(w => w.id === activeWireframe) 
+    : null;
 
   const getCanvasDimensions = () => {
     if (currentWireframe && currentWireframe.width && currentWireframe.height) {
@@ -303,77 +356,75 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
   const updateElementProperties = useCallback((elementId: string, props: Partial<WireframeElement>) => {
     triggerUnsyncedState();
 
-    setInternalProject(currentProject => {
-      const updateRecursively = (elements: WireframeElement[], id: string, properties: Partial<WireframeElement>): WireframeElement[] => {
-        return elements.map(el => {
-          if (el.id === id) {
-            
-            const newProps = { ...properties };
-            const elementForCalcs = { ...el, ...newProps };
+    const updateRecursively = (elements: WireframeElement[], id: string, properties: Partial<WireframeElement>): WireframeElement[] => {
+      return elements.map(el => {
+        if (el.id === id) {
+          
+          const newProps = { ...properties };
+          const elementForCalcs = { ...el, ...newProps };
 
-            const hasTextChange = newProps.text !== undefined && newProps.text !== el.text;
-            const hasStyleChange = newProps.fontSize !== undefined || newProps.fontFamily !== undefined || newProps.fontStyle !== undefined || newProps.textAutoResize !== undefined;
+          const hasTextChange = newProps.text !== undefined && newProps.text !== el.text;
+          const hasStyleChange = newProps.fontSize !== undefined || newProps.fontFamily !== undefined || newProps.fontStyle !== undefined || newProps.textAutoResize !== undefined;
 
-            if (elementForCalcs.type === 'text' && (hasTextChange || hasStyleChange) && elementForCalcs.textAutoResize && elementForCalcs.textAutoResize !== 'NONE') {
-                const tempText = new Konva.Text({
-                    text: elementForCalcs.text,
-                    fontSize: getFontSize(elementForCalcs, currentProject.resolution),
-                    fontFamily: getFontFamilyCSS(elementForCalcs.fontFamily || 'inter'),
-                    fontStyle: elementForCalcs.fontStyle || 'normal',
-                    lineHeight: elementForCalcs.lineHeight,
-                    letterSpacing: elementForCalcs.letterSpacing,
-                    // For WIDTH and WIDTH_AND_HEIGHT, we let the width be calculated automatically.
-                    // For HEIGHT, we use the element's current width to wrap text and calculate new height.
-                    width: elementForCalcs.textAutoResize === 'HEIGHT' ? elementForCalcs.width : undefined, 
-                });
+          if (elementForCalcs.type === 'text' && (hasTextChange || hasStyleChange) && elementForCalcs.textAutoResize && elementForCalcs.textAutoResize !== 'NONE') {
+              const tempText = new Konva.Text({
+                  text: elementForCalcs.text,
+                  fontSize: getFontSize(elementForCalcs, internalProject.resolution),
+                  fontFamily: getFontFamilyCSS(elementForCalcs.fontFamily || 'inter'),
+                  fontStyle: elementForCalcs.fontStyle || 'normal',
+                  lineHeight: elementForCalcs.lineHeight,
+                  letterSpacing: elementForCalcs.letterSpacing,
+                  // For WIDTH and WIDTH_AND_HEIGHT, we let the width be calculated automatically.
+                  // For HEIGHT, we use the element's current width to wrap text and calculate new height.
+                  width: elementForCalcs.textAutoResize === 'HEIGHT' ? elementForCalcs.width : undefined, 
+              });
 
-                if (elementForCalcs.textAutoResize === 'WIDTH_AND_HEIGHT') {
-                    newProps.width = tempText.width();
-                    newProps.height = tempText.height();
-                } else if (elementForCalcs.textAutoResize === 'HEIGHT') {
-                    newProps.height = tempText.height();
-                } else if (elementForCalcs.textAutoResize === 'WIDTH') {
-                    newProps.width = tempText.width();
-                    // Also ensure height adjusts for new lines
-                    newProps.height = tempText.height();
-                }
-            }
-
-            const updatedEl = { ...el, ...newProps };
-
-            if (updatedEl.type === 'icon') {
-              if (properties.width !== undefined) {
-                updatedEl.width = Math.max(14, properties.width);
+              if (elementForCalcs.textAutoResize === 'WIDTH_AND_HEIGHT') {
+                  newProps.width = tempText.width();
+                  newProps.height = tempText.height();
+              } else if (elementForCalcs.textAutoResize === 'HEIGHT') {
+                  newProps.height = tempText.height();
+              } else if (elementForCalcs.textAutoResize === 'WIDTH') {
+                  newProps.width = tempText.width();
+                  // Also ensure height adjusts for new lines
+                  newProps.height = tempText.height();
               }
-              if (properties.height !== undefined) {
-                updatedEl.height = Math.max(14, properties.height);
-              }
-            }
-            return updatedEl;
           }
-          if (el.child) {
-            return { ...el, child: updateRecursively(el.child, id, properties) };
-          }
-          return el;
-        });
-      };
 
-      const updatedProject = {
-        ...currentProject,
-        wireframes: currentProject.wireframes.map(w =>
-          activeWireframe !== 'none' && w.id === activeWireframe
-            ? {
-                ...w,
-                elements: updateRecursively(w.elements, elementId, props)
-              }
-            : w
-        )
-      };
-      
-      saveProjectLocally(updatedProject);
-      return updatedProject;
-    });
-  }, [activeWireframe, saveProjectLocally]);
+          const updatedEl = { ...el, ...newProps };
+
+          if (updatedEl.type === 'icon') {
+            if (properties.width !== undefined) {
+              updatedEl.width = Math.max(14, properties.width);
+            }
+            if (properties.height !== undefined) {
+              updatedEl.height = Math.max(14, properties.height);
+            }
+          }
+          return updatedEl;
+        }
+        if (el.child) {
+          return { ...el, child: updateRecursively(el.child, id, properties) };
+        }
+        return el;
+      });
+    };
+
+    const updatedProject = {
+      ...internalProject,
+      wireframes: internalProject.wireframes.map(w =>
+        activeWireframe !== 'none' && w.id === activeWireframe
+          ? {
+              ...w,
+              elements: updateRecursively(w.elements, elementId, props)
+            }
+          : w
+      )
+    };
+    
+    saveProjectLocally(updatedProject);
+    setInternalProject(updatedProject);
+  }, [activeWireframe, saveProjectLocally, internalProject]);
 
   const updateElementProperty = useCallback((elementId: string, property: string, value: any) => {
     updateElementProperties(elementId, { [property]: value });
@@ -1345,117 +1396,117 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
   }, []);
 
   const handleElementDragEnd = useCallback((elementId: string, newX: number, newY: number) => {
-    if (!currentWireframe) return;
+  if (!currentWireframe) return;
 
-    const findAndRemoveElement = (elements: WireframeElement[], id: string): { newElements: WireframeElement[], removed: WireframeElement | null } => {
-        let removed: WireframeElement | null = null;
-        const remaining = elements.filter(el => {
-            if (el.id === id) {
-                removed = el;
-                return false;
-            }
-            return true;
-        });
+  const findAndRemoveElement = (elements: WireframeElement[], id: string): { newElements: WireframeElement[], removed: WireframeElement | null } => {
+    let removed: WireframeElement | null = null;
+    const remaining = elements.filter(el => {
+      if (el.id === id) {
+        removed = el;
+        return false;
+      }
+      return true;
+    });
 
-        if (removed) {
-            return { newElements: remaining, removed };
-        }
+    if (removed) {
+      return { newElements: remaining, removed };
+    }
 
-        const newElements = elements.map(el => {
-            if (el.child) {
-                const result = findAndRemoveElement(el.child, id);
-                if (result.removed) {
-                    removed = result.removed;
-                    return { ...el, child: result.newElements };
-                }
-            }
-            return el;
-        });
-        return { newElements, removed };
-    };
-
-    const { newElements: elementsAfterRemoval, removed: element } = findAndRemoveElement(currentWireframe.elements, elementId);
-
-    if (!element) return;
-
-    const getAllFramesWithAbsPos = (elements: WireframeElement[], parentPos = { x: 0, y: 0 }): (WireframeElement & { absX: number, absY: number })[] => {
-        let frames: (WireframeElement & { absX: number, absY: number })[] = [];
-        for (const el of elements) {
-            const absX = parentPos.x + el.x;
-            const absY = parentPos.y + el.y;
-            if (el.type === 'frame') {
-                frames.push({ ...el, absX, absY });
-            }
-            if (el.child) {
-                frames = frames.concat(getAllFramesWithAbsPos(el.child, { x: absX, y: absY }));
-            }
-        }
-        return frames;
-    };
-
-    const allFrames = getAllFramesWithAbsPos(elementsAfterRemoval).filter(f => f.id !== elementId);
-
-    let newParent: (WireframeElement & { absX: number, absY: number }) | undefined = undefined;
-    const elementCenterX = newX + element.width / 2;
-    const elementCenterY = newY + element.height / 2;
-
-    for (const frame of allFrames) {
-      if (
-        elementCenterX >= frame.absX && elementCenterX < frame.absX + frame.width &&
-        elementCenterY >= frame.absY && elementCenterY < frame.absY + frame.height
-      ) {
-        if (!newParent || (frame.zIndex || 0) > (newParent.zIndex || 0)) {
-          newParent = frame;
+    const newElements = elements.map(el => {
+      if (el.child) {
+        const result = findAndRemoveElement(el.child, id);
+        if (result.removed) {
+          removed = result.removed;
+          return { ...el, child: result.newElements };
         }
       }
+      return el;
+    });
+    return { newElements, removed };
+  };
+
+  const { newElements: elementsAfterRemoval, removed: element } = findAndRemoveElement(currentWireframe.elements, elementId);
+
+  if (!element) return;
+
+  const getAllFramesWithAbsPos = (elements: WireframeElement[], parentPos = { x: 0, y: 0 }): (WireframeElement & { absX: number, absY: number })[] => {
+    let frames: (WireframeElement & { absX: number, absY: number })[] = [];
+    for (const el of elements) {
+      const absX = parentPos.x + el.x;
+      const absY = parentPos.y + el.y;
+      if (el.type === 'frame') {
+        frames.push({ ...el, absX, absY });
+      }
+      if (el.child) {
+        frames = frames.concat(getAllFramesWithAbsPos(el.child, { x: absX, y: absY }));
+      }
     }
+    return frames;
+  };
 
-    let finalElements = elementsAfterRemoval;
-    let updatedElement = { ...element };
+  const allFrames = getAllFramesWithAbsPos(elementsAfterRemoval).filter(f => f.id !== elementId);
 
-    if (newParent) {
-        const parentPadding = newParent.padding || 0;
-        
-        const parentContentX = newParent.absX + parentPadding;
-        const parentContentY = newParent.absY + parentPadding;
-        const parentContentWidth = newParent.width - (parentPadding * 2);
-        const parentContentHeight = newParent.height - (parentPadding * 2);
+  let newParent: (WireframeElement & { absX: number, absY: number }) | undefined = undefined;
+  const elementCenterX = newX + element.width / 2;
+  const elementCenterY = newY + element.height / 2;
 
-        const clampedAbsX = Math.max(parentContentX, Math.min(newX, parentContentX + parentContentWidth - element.width));
-        const clampedAbsY = Math.max(parentContentY, Math.min(newY, parentContentY + parentContentHeight - element.height));
-
-        updatedElement.x = clampedAbsX - newParent.absX;
-        updatedElement.y = clampedAbsY - newParent.absY;
-        
-        const addElementToParent = (elements: WireframeElement[], parentId: string, childToAdd: WireframeElement): WireframeElement[] => {
-            return elements.map(el => {
-                if (el.id === parentId) {
-                    return { ...el, child: [...(el.child || []), childToAdd] };
-                }
-                if (el.child) {
-                    return { ...el, child: addElementToParent(el.child, parentId, childToAdd) };
-                }
-                return el;
-            });
-        };
-        finalElements = addElementToParent(finalElements, newParent.id, updatedElement);
-    } else {
-        updatedElement.x = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
-        updatedElement.y = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
-        finalElements = [...finalElements, updatedElement];
+  for (const frame of allFrames) {
+    if (
+    elementCenterX >= frame.absX && elementCenterX < frame.absX + frame.width &&
+    elementCenterY >= frame.absY && elementCenterY < frame.absY + frame.height
+    ) {
+    if (!newParent || (frame.zIndex || 0) > (newParent.zIndex || 0)) {
+      newParent = frame;
     }
+    }
+  }
 
-    const updatedProject = {
-      ...internalProject,
-      wireframes: internalProject.wireframes.map(w =>
-        w.id === activeWireframe
-          ? { ...w, elements: finalElements }
-          : w
-      )
+  let finalElements = elementsAfterRemoval;
+  let updatedElement = { ...element };
+
+  if (newParent) {
+    // Usar padding por lado
+    const p = getPaddingVals(newParent);
+    const parentContentX = newParent.absX + p.left;
+    const parentContentY = newParent.absY + p.top;
+    const parentContentWidth = newParent.width - (p.left + p.right);
+    const parentContentHeight = newParent.height - (p.top + p.bottom);
+
+    const clampedAbsX = Math.max(parentContentX, Math.min(newX, parentContentX + parentContentWidth - element.width));
+    const clampedAbsY = Math.max(parentContentY, Math.min(newY, parentContentY + parentContentHeight - element.height));
+
+    updatedElement.x = clampedAbsX - newParent.absX;
+    updatedElement.y = clampedAbsY - newParent.absY;
+
+    const addElementToParent = (elements: WireframeElement[], parentId: string, childToAdd: WireframeElement): WireframeElement[] => {
+      return elements.map(el => {
+        if (el.id === parentId) {
+          return { ...el, child: [...(el.child || []), childToAdd] };
+        }
+        if (el.child) {
+          return { ...el, child: addElementToParent(el.child, parentId, childToAdd) };
+        }
+        return el;
+      });
     };
-    updateAndSaveProject(updatedProject);
+    finalElements = addElementToParent(finalElements, newParent.id, updatedElement);
+  } else {
+    updatedElement.x = Math.max(0, Math.min(newX, canvasDimensions.width - element.width));
+    updatedElement.y = Math.max(0, Math.min(newY, canvasDimensions.height - element.height));
+    finalElements = [...finalElements, updatedElement];
+  }
 
-}, [internalProject, activeWireframe, canvasDimensions, updateAndSaveProject]);
+  const updatedProject = {
+    ...internalProject,
+    wireframes: internalProject.wireframes.map(w =>
+    w.id === activeWireframe
+      ? { ...w, elements: finalElements }
+      : w
+    )
+  };
+  updateAndSaveProject(updatedProject);
+
+}, [internalProject, activeWireframe, canvasDimensions, updateAndSaveProject, getPaddingVals]);
 
   const handleReparentElement = useCallback((elementId: string, newParentId: string | null, newX: number, newY: number) => {
     if (!currentWireframe) return;
@@ -1524,73 +1575,72 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
 }, [internalProject, activeWireframe, updateAndSaveProject]);
 
   const handleElementTransformEnd = useCallback((elementId: string, newX: number, newY: number, newWidth: number, newHeight: number) => {
-    if (!currentWireframe) return;
+  if (!currentWireframe) return;
 
-    const findElementWithParent = (elements: WireframeElement[], id: string, parent: WireframeElement | null = null): { element: WireframeElement, parent: WireframeElement | null } | null => {
-        for (const el of elements) {
-            if (el.id === id) return { element: el, parent };
-            if (el.child) {
-                const found = findElementWithParent(el.child, id, el);
-                if (found) return found;
-            }
-        }
-        return null;
+  const findElementWithParent = (elements: WireframeElement[], id: string, parent: WireframeElement | null = null): { element: WireframeElement, parent: WireframeElement | null } | null => {
+    for (const el of elements) {
+      if (el.id === id) return { element: el, parent };
+      if (el.child) {
+        const found = findElementWithParent(el.child, id, el);
+        if (found) return found;
+      }
     }
+    return null;
+  }
 
-    const found = findElementWithParent(currentWireframe.elements, elementId);
-    if (!found) return;
-    const { element, parent } = found;
+  const found = findElementWithParent(currentWireframe.elements, elementId);
+  if (!found) return;
+  const { element, parent } = found;
 
-    const minSize = getElementMinimumSize(element.type);
+  const minSize = getElementMinimumSize(element.type);
 
-    let x = Math.round(newX);
-    let y = Math.round(newY);
-    let width = Math.max(minSize, Math.round(newWidth));
-    let height = Math.max(minSize, Math.round(newHeight));
+  // O ponto de ancoragem é sempre o canto superior esquerdo do elemento
+  let x = element.x;
+  let y = element.y;
+  let width = Math.max(minSize, Math.round(newWidth));
+  let height = Math.max(minSize, Math.round(newHeight));
 
-    const bounds = {
-        x1: parent ? (parent.padding || 0) : 0,
-        y1: parent ? (parent.padding || 0) : 0,
-        x2: parent ? parent.width - (parent.padding || 0) : canvasDimensions.width,
-        y2: parent ? parent.height - (parent.padding || 0) : canvasDimensions.height,
-    };
+  if (parent) {
+    // Usar padding por lado
+    const p = getPaddingVals(parent);
+    const maxWidth = parent.width - p.left - p.right - x;
+    const maxHeight = parent.height - p.top - p.bottom - y;
+    width = Math.min(width, maxWidth);
+    height = Math.min(height, maxHeight);
+    // Nunca permitir tamanho menor que minSize
+    width = Math.max(width, minSize);
+    height = Math.max(height, minSize);
+  } else {
+    // Fora de frame, usar canvas
+    const maxWidth = canvasDimensions.width - x;
+    const maxHeight = canvasDimensions.height - y;
+    width = Math.min(width, maxWidth);
+    height = Math.min(height, maxHeight);
+    width = Math.max(width, minSize);
+    height = Math.max(height, minSize);
+  }
 
-    if (x < bounds.x1) {
-        width = width + x - bounds.x1;
-        x = bounds.x1;
+  const propsToUpdate: Partial<WireframeElement> = {
+    x,
+    y,
+    width,
+    height,
+  };
+
+  if (element.type === 'text') {
+    const widthChanged = Math.round(newWidth) !== Math.round(element.width);
+    const heightChanged = Math.round(newHeight) !== Math.round(element.height);
+
+    if (widthChanged) {
+      propsToUpdate.textAutoResize = 'HEIGHT'; 
+    } else if (heightChanged) {
+      propsToUpdate.textAutoResize = 'NONE';
     }
-    if (y < bounds.y1) {
-        height = height + y - bounds.y1;
-        y = bounds.y1;
-    }
-    if (x + width > bounds.x2) {
-        width = bounds.x2 - x;
-    }
-    if (y + height > bounds.y2) {
-        height = bounds.y2 - y;
-    }
-
-    const propsToUpdate: Partial<WireframeElement> = {
-        x,
-        y,
-        width: Math.max(minSize, width),
-        height: Math.max(minSize, height),
-    };
-
-    if (element.type === 'text') {
-        const widthChanged = Math.round(newWidth) !== Math.round(element.width);
-        const heightChanged = Math.round(newHeight) !== Math.round(element.height);
-
-        if (widthChanged) {
-            propsToUpdate.textAutoResize = 'HEIGHT'; 
-        } else if (heightChanged) {
-            propsToUpdate.textAutoResize = 'NONE';
-        }
-    }
+  }
     
-    updateElementProperties(elementId, propsToUpdate);
+  updateElementProperties(elementId, propsToUpdate);
 
-  }, [currentWireframe, updateElementProperties, canvasDimensions]);
+  }, [currentWireframe, updateElementProperties, canvasDimensions, getPaddingVals]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && selectedElement) {
@@ -1884,6 +1934,15 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
           <span className="text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
           <Button variant="outline" size="sm" onClick={() => setZoom(Math.min(2, zoom + 0.25))}>
             <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={undo}
+            disabled={!canUndo}
+            title="Desfazer (Ctrl+Z)"
+          >
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
           </Button>
           <Button variant="outline" size="sm" onClick={() => setIsFigmaImportModalOpen(true)}>
             Importar do Figma
@@ -2215,10 +2274,34 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
 
                           {selectedElementData.type === 'image' && (
                             <>
-                              <div>
-                                <Label htmlFor="element-image">Imagem</Label>
-                                <Input id="element-image" type="file" accept="image/*" onChange={handleImageUpload} />
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                  <Label htmlFor="element-image">Imagem</Label>
+                                  <Input id="element-image" type="file" accept="image/*" onChange={handleImageUpload} />
+                                </div>
+                                {selectedElementData.imageSrc && (
+                                  <Button variant="outline" size="icon" title="Editar imagem" onClick={() => setIsImageCropOpen(true)}>
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"/><path d="M8 3v12M3 8h12"/></svg>
+                                  </Button>
+                                )}
                               </div>
+                              {selectedElementData.imageSrc && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Label className="mr-2">Modo:</Label>
+                                  <Button variant={selectedElementData.imageMode === 'cover' ? 'default' : 'outline'} size="icon" title="Cover" onClick={() => updateElementProperty(selectedElementData.id, 'imageMode', 'cover')}>
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"/><path d="M3 3l12 12"/></svg>
+                                  </Button>
+                                  <Button variant={selectedElementData.imageMode === 'contain' ? 'default' : 'outline'} size="icon" title="Contain" onClick={() => updateElementProperty(selectedElementData.id, 'imageMode', 'contain')}>
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"/><circle cx="9" cy="9" r="4"/></svg>
+                                  </Button>
+                                  <Button variant={selectedElementData.imageMode === 'fill' ? 'default' : 'outline'} size="icon" title="Fill" onClick={() => updateElementProperty(selectedElementData.id, 'imageMode', 'fill')}>
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"/><rect x="6" y="6" width="6" height="6"/></svg>
+                                  </Button>
+                                  <Button variant={selectedElementData.imageMode === 'none' ? 'default' : 'outline'} size="icon" title="Sem ajuste" onClick={() => updateElementProperty(selectedElementData.id, 'imageMode', 'none')}>
+                                    <span className="w-4 h-4 flex items-center justify-center">—</span>
+                                  </Button>
+                                </div>
+                              )}
                               <div>
                                 <Label>Preto e Branco</Label>
                                 <Slider
@@ -2229,6 +2312,16 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                                   onValueChange={(value) => updateElementProperties(selectedElementData.id, { grayscale: value[0] })}
                                 />
                               </div>
+                              {selectedElementData.imageSrc && (
+                                <ImageCropModal
+                                  imageSrc={selectedElementData.imageSrc}
+                                  open={isImageCropOpen}
+                                  onClose={() => setIsImageCropOpen(false)}
+                                  onCropComplete={(_, croppedAreaPixels) => {
+                                    updateElementProperty(selectedElementData.id, 'imageCrop', croppedAreaPixels);
+                                  }}
+                                />
+                              )}
                             </>
                           )}
 
@@ -2505,6 +2598,87 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                               </div>
                             </div>
                           </div>
+
+                          {/* Auto Layout Section for Wireframe */}
+                          <div className="border-t pt-4">
+                            <Label className="text-sm font-medium">Auto Layout</Label>
+                            
+                            {/* Layout Mode Buttons */}
+                            <div className="flex items-center gap-2 mt-2 mb-3">
+                              <Button
+                                size="sm"
+                                variant={(currentWireframe?.layoutMode && currentWireframe?.layoutMode !== 'none') ? 'default' : 'outline'}
+                                onClick={() => {
+                                  const isActive = !!(currentWireframe?.layoutMode && currentWireframe?.layoutMode !== 'none');
+                                  if (isActive) {
+                                    handleUpdateWireframe(activeWireframe, { layoutMode: 'none' });
+                                  } else {
+                                    handleUpdateWireframe(activeWireframe, { layoutMode: 'horizontal' });
+                                  }
+                                }}
+                                title={currentWireframe?.layoutMode && currentWireframe?.layoutMode !== 'none' ? 'Desativar Auto Layout' : 'Ativar Auto Layout'}
+                              >
+                                <Layers className="w-4 h-4" />
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant={currentWireframe?.layoutMode === 'horizontal' ? 'default' : 'outline'}
+                                onClick={() => handleUpdateWireframe(activeWireframe, { layoutMode: 'horizontal' })}
+                                title="Alinhar Horizontalmente"
+                              >
+                                <div className="flex items-center gap-1"><ChevronLeft className="w-4 h-4" /><ChevronRight className="w-4 h-4" /></div>
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant={currentWireframe?.layoutMode === 'vertical' ? 'default' : 'outline'}
+                                onClick={() => handleUpdateWireframe(activeWireframe, { layoutMode: 'vertical' })}
+                                title="Alinhar Verticalmente"
+                              >
+                                <div className="flex items-center gap-1"><ChevronUp className="w-4 h-4" /><ChevronDown className="w-4 h-4" /></div>
+                              </Button>
+                            </div>
+
+                            {/* Show controls only if auto layout is enabled */}
+                            {currentWireframe?.layoutMode !== 'none' && (
+                              <>
+                                {/* Item Spacing */}
+                                <div className="space-y-2 mb-3">
+                                  <Label htmlFor="item-spacing" className="text-xs text-muted-foreground">Espaçamento entre elementos</Label>
+                                  <Input
+                                    id="item-spacing"
+                                    type="number"
+                                    min={0}
+                                    value={currentWireframe?.itemSpacing ?? 0}
+                                    onChange={(e) => handleUpdateWireframe(activeWireframe, { itemSpacing: Math.max(0, parseInt(e.target.value) || 0) })}
+                                    className="text-sm"
+                                    placeholder="0"
+                                  />
+                                </div>
+
+                                {/* Padding */}
+                                <PaddingPicker
+                                  paddingTop={currentWireframe?.paddingTop}
+                                  paddingRight={currentWireframe?.paddingRight}
+                                  paddingBottom={currentWireframe?.paddingBottom}
+                                  paddingLeft={currentWireframe?.paddingLeft}
+                                  onChange={(changes) => handleUpdateWireframe(activeWireframe, changes)}
+                                />
+
+                                {/* Alignment */}
+                                <div className="mt-3">
+                                  <Label className="text-xs text-muted-foreground mb-2">Alinhamento</Label>
+                                  <AlignmentPicker
+                                    justifyContent={currentWireframe?.justifyContent || 'flex-start'}
+                                    alignItems={currentWireframe?.alignItems || 'flex-start'}
+                                    onChange={(props) => handleUpdateWireframe(activeWireframe, props)}
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </div>
+
                           <div className="flex items-center space-x-2 mt-4">
                             <Switch
                               id="xray-mode"

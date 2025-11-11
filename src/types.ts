@@ -21,6 +21,8 @@ export interface WireframeElement {
   iconName?: string;
   iconComponent?: string;
   imageSrc?: string;
+  imageMode?: 'cover' | 'contain' | 'fill' | 'none';
+  imageCrop?: { x: number; y: number; width: number; height: number } | null;
   videoSrc?: string;
   navigationTarget?: string;
   child?: WireframeElement[];
@@ -57,6 +59,15 @@ export interface Wireframe {
   elements: WireframeElement[];
   width?: number;
   height?: number;
+  // Auto Layout properties for wireframe
+  layoutMode?: 'none' | 'horizontal' | 'vertical';
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  itemSpacing?: number;
+  justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between';
+  alignItems?: 'flex-start' | 'center' | 'flex-end';
 }
 
 export interface GridConfig {

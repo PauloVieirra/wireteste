@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, Fragment, useState } from 'react';
+import React, { useRef, useEffect, Fragment, useState, useMemo } from 'react';
 import { Stage, Layer, Rect, Circle, Text, Transformer, Image as KonvaImage, Group, Path } from 'react-konva';
 import Konva from 'konva';
 import { iconIndex } from './icon-index'; // Import iconIndex
@@ -7,6 +7,7 @@ import { iconPaths } from './icon-paths.js'; // Import generated icon paths
 import { KonvaSvg } from './KonvaSvg';
 import KonvaIconRenderer from './KonvaIconRenderer';
 import { FloatingToolbar } from './FloatingToolbar';
+import { useWireframeAutoLayout } from '../hooks/useWireframeAutoLayout';
 
 // --- DATA STRUCTURES (from WireframeEditor) ---
 interface WireframeElement {
@@ -32,6 +33,8 @@ interface WireframeElement {
   iconName?: string;
   iconComponent?: string;
   imageSrc?: string;
+  imageMode?: 'cover' | 'contain' | 'fill' | 'none';
+  imageCrop?: { x: number; y: number; width: number; height: number } | null;
   videoSrc?: string;
   navigationTarget?: string;
   child?: WireframeElement[];
@@ -50,6 +53,17 @@ interface Wireframe {
   id: string;
   name: string;
   elements: WireframeElement[];
+  width?: number;
+  height?: number;
+  // Auto Layout properties
+  layoutMode?: 'none' | 'horizontal' | 'vertical';
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  itemSpacing?: number;
+  justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between';
+  alignItems?: 'flex-start' | 'center' | 'flex-end';
 }
 
 interface GridConfig {
@@ -140,6 +154,78 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       trRef.current.getLayer()?.batchDraw();
     }
   }, [isSelected, shapeRef.current, trRef.current]);
+
+  // Helper function to calculate image properties based on mode and crop
+  const getImageProperties = () => {
+    if (!image) return { x: 0, y: 0, width: element.width, height: element.height, cropX: 0, cropY: 0, cropWidth: element.width, cropHeight: element.height };
+
+    const containerWidth = element.width;
+    const containerHeight = element.height;
+    const imgWidth = image.width;
+    const imgHeight = image.height;
+    const imgAspect = imgWidth / imgHeight;
+    const containerAspect = containerWidth / containerHeight;
+
+    let displayWidth = containerWidth;
+    let displayHeight = containerHeight;
+    let displayX = 0;
+    let displayY = 0;
+
+    const mode = element.imageMode || 'cover';
+
+    if (mode === 'cover') {
+      // Image covers the container, may be cropped
+      if (imgAspect > containerAspect) {
+        displayHeight = containerHeight;
+        displayWidth = containerHeight * imgAspect;
+        displayX = -(displayWidth - containerWidth) / 2;
+      } else {
+        displayWidth = containerWidth;
+        displayHeight = containerWidth / imgAspect;
+        displayY = -(displayHeight - containerHeight) / 2;
+      }
+    } else if (mode === 'contain') {
+      // Image fits inside container, may have empty space
+      if (imgAspect > containerAspect) {
+        displayWidth = containerWidth;
+        displayHeight = containerWidth / imgAspect;
+        displayY = (containerHeight - displayHeight) / 2;
+      } else {
+        displayHeight = containerHeight;
+        displayWidth = containerHeight * imgAspect;
+        displayX = (containerWidth - displayWidth) / 2;
+      }
+    } else if (mode === 'fill') {
+      // Image stretches to fill container
+      displayWidth = containerWidth;
+      displayHeight = containerHeight;
+    }
+    // mode === 'none' uses default displayWidth/displayHeight = element dimensions
+
+    // Apply crop if present
+    let cropX = 0;
+    let cropY = 0;
+    let cropWidth = imgWidth;
+    let cropHeight = imgHeight;
+
+    if (element.imageCrop) {
+      cropX = element.imageCrop.x;
+      cropY = element.imageCrop.y;
+      cropWidth = element.imageCrop.width;
+      cropHeight = element.imageCrop.height;
+    }
+
+    return {
+      x: displayX,
+      y: displayY,
+      width: displayWidth,
+      height: displayHeight,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+    };
+  };
 
   const xrayProps = isXRayMode ? {
     fill: 'transparent',
@@ -304,6 +390,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       );
       break;
     case 'image':
+      const imgProps = getImageProperties();
       component = (
         <KonvaImage
           key={element.id}
@@ -311,6 +398,14 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
           ref={shapeRef}
           image={image}
           opacity={element.opacity || 1}
+          x={commonProps.x + imgProps.x}
+          y={commonProps.y + imgProps.y}
+          width={imgProps.width}
+          height={imgProps.height}
+          cropX={imgProps.cropX}
+          cropY={imgProps.cropY}
+          cropWidth={imgProps.cropWidth}
+          cropHeight={imgProps.cropHeight}
           {...xrayProps}
         />
       );
@@ -319,6 +414,7 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       if (element.videoSrc && element.videoSrc.startsWith('http')) {
         component = null; // Will be rendered as HTML video player
       } else {
+        const vidProps = getImageProperties();
         component = (
           <KonvaImage
             key={element.id}
@@ -326,6 +422,14 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
             ref={shapeRef}
             image={image}
             opacity={element.opacity || 1}
+            x={commonProps.x + vidProps.x}
+            y={commonProps.y + vidProps.y}
+            width={vidProps.width}
+            height={vidProps.height}
+            cropX={vidProps.cropX}
+            cropY={vidProps.cropY}
+            cropWidth={vidProps.cropWidth}
+            cropHeight={vidProps.cropHeight}
             {...xrayProps}
           />
         );
@@ -564,6 +668,42 @@ export const WireframeCanvas = React.forwardRef(({
   isReadOnly = false,
   isXRayMode = false,
 }, ref) => {
+  const { calculateAutoLayout } = useWireframeAutoLayout();
+
+  // Apply auto layout to wireframe elements
+  const layoutAppliedWireframe = useMemo(() => {
+    if (!wireframe.layoutMode || wireframe.layoutMode === 'none') {
+      return wireframe;
+    }
+
+    const layoutElements = calculateAutoLayout(wireframe, {
+      layoutMode: wireframe.layoutMode,
+      paddingTop: wireframe.paddingTop,
+      paddingRight: wireframe.paddingRight,
+      paddingBottom: wireframe.paddingBottom,
+      paddingLeft: wireframe.paddingLeft,
+      itemSpacing: wireframe.itemSpacing,
+      justifyContent: wireframe.justifyContent,
+      alignItems: wireframe.alignItems,
+    });
+
+    return {
+      ...wireframe,
+      elements: layoutElements,
+    };
+  }, [
+    wireframe.id, 
+    wireframe.layoutMode, 
+    wireframe.elements, 
+    wireframe.paddingTop,
+    wireframe.paddingRight,
+    wireframe.paddingBottom,
+    wireframe.paddingLeft,
+    wireframe.itemSpacing,
+    wireframe.justifyContent,
+    wireframe.alignItems,
+    calculateAutoLayout
+  ]);
 
   useEffect(() => {
     const stage = (ref as React.MutableRefObject<Konva.Stage>)?.current;
@@ -654,9 +794,9 @@ export const WireframeCanvas = React.forwardRef(({
       >
         <GridOverlay width={canvasDimensions.width} height={canvasDimensions.height} gridConfig={gridConfig} />
         <Layer>
-          {wireframe.elements
+          {layoutAppliedWireframe.elements
             .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-            .map(element => renderElementAndChildren(element))}
+            .map((element) => renderElementAndChildren(element))}
         </Layer>
       </Stage>
     </div>
