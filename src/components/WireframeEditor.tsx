@@ -20,6 +20,7 @@ import { useToast } from './ToastProvider';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resizable';
 import { TextEditor } from './TextEditor';
 import { BorderRadiusPicker } from './BorderRadiusPicker';
+import { PaddingPicker } from './PaddingPicker';
 import { PublishModal } from './PublishModal';
 import { LibraryModal } from './LibraryModal';
 import FigmaImportModal from './FigmaImportModal';
@@ -418,6 +419,17 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
     updateAndSaveProject(updatedProject);
   };
 
+  // Helper to get per-side padding values with fallback to legacy padding
+  const getPaddingVals = (element: WireframeElement) => {
+    const base = element.padding ?? 0;
+    return {
+      top: element.paddingTop ?? base,
+      right: element.paddingRight ?? base,
+      bottom: element.paddingBottom ?? base,
+      left: element.paddingLeft ?? base,
+    };
+  };
+
   const fillContainer = (elementId: string, axis: 'horizontal' | 'vertical') => {
     const wireframe = internalProject.wireframes.find(w => w.id === activeWireframe);
     if (!wireframe) return;
@@ -440,15 +452,17 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
     const propertiesToUpdate: Partial<WireframeElement> = {};
     
     if (parent) {
-        // Logic for when inside a parent frame
-        const parentPadding = parent.padding || 0;
+        // Logic for when inside a parent frame - use per-side padding
+        const p = getPaddingVals(parent);
+        const parentBorderWidth = parent.borderWidth || 0;
+        
         if (axis === 'horizontal') {
-            propertiesToUpdate.x = parentPadding;
-            propertiesToUpdate.width = Math.max(24, parent.width - (parentPadding * 2));
+            propertiesToUpdate.x = p.left + (parentBorderWidth / 2);
+            propertiesToUpdate.width = Math.max(24, parent.width - (p.left + p.right) - parentBorderWidth);
         }
         if (axis === 'vertical') {
-            propertiesToUpdate.y = parentPadding;
-            propertiesToUpdate.height = Math.max(24, parent.height - (parentPadding * 2));
+            propertiesToUpdate.y = p.top + (parentBorderWidth / 2);
+            propertiesToUpdate.height = Math.max(24, parent.height - (p.top + p.bottom) - parentBorderWidth);
         }
     } else {
         // Logic for root canvas
@@ -489,22 +503,22 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
         maxY = Math.max(maxY, child.y + child.height);
     });
 
-    const padding = frame.padding || 16;
+    const p = getPaddingVals(frame);
     const newFrame = { ...frame, child: [...(frame.child || [])] }; 
 
     if (axis === 'horizontal') {
-        const newWidth = Math.max(24, maxX - minX + padding * 2);
-        const dx = -minX + padding;
+        const newWidth = Math.max(24, maxX - minX + p.left + p.right);
+        const dx = -minX + p.left;
         newFrame.width = newWidth;
-        newFrame.x = frame.x + minX - padding;
+        newFrame.x = frame.x + minX - p.left;
         newFrame.child = newFrame.child.map(child => ({ ...child, x: child.x + dx }));
     }
 
     if (axis === 'vertical') {
-        const newHeight = Math.max(24, maxY - minY + padding * 2);
-        const dy = -minY + padding;
+        const newHeight = Math.max(24, maxY - minY + p.top + p.bottom);
+        const dy = -minY + p.top;
         newFrame.height = newHeight;
-        newFrame.y = frame.y + minY - padding;
+        newFrame.y = frame.y + minY - p.top;
         newFrame.child = newFrame.child.map(child => ({ ...child, y: child.y + dy }));
     }
 
@@ -547,11 +561,11 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
 
     const children = frame.child || [];
     
-    const padding = frame.padding || 0;
+    const p = getPaddingVals(frame);
     const spacing = frame.itemSpacing || 0;
 
-    let currentX = padding;
-    let currentY = padding;
+    let currentX = p.left;
+    let currentY = p.top;
     let maxInSecondaryAxis = 0;
 
     const childUpdates: { elementId: string, props: Partial<WireframeElement> }[] = [];
@@ -571,14 +585,14 @@ export function WireframeEditor({ project, onUpdateProject, onBack, user }: Wire
     let newFrameHeight: number;
 
     if (children.length === 0) {
-      newFrameWidth = padding * 2;
-      newFrameHeight = padding * 2;
+      newFrameWidth = p.left + p.right;
+      newFrameHeight = p.top + p.bottom;
     } else if (frame.layoutMode === 'horizontal') {
-      newFrameWidth = currentX - spacing + padding;
-      newFrameHeight = maxInSecondaryAxis + padding * 2;
+      newFrameWidth = currentX - spacing + p.right;
+      newFrameHeight = maxInSecondaryAxis + p.top + p.bottom;
     } else { // vertical
-      newFrameWidth = maxInSecondaryAxis + padding * 2;
-      newFrameHeight = currentY - spacing + padding;
+      newFrameWidth = maxInSecondaryAxis + p.left + p.right;
+      newFrameHeight = currentY - spacing + p.bottom;
     }
 
     const frameUpdate: Partial<WireframeElement> = {};
@@ -2361,39 +2375,63 @@ const handleImportWireframe = (importedWireframeData: { name: string; svg: strin
                               </div>
                               <div className="space-y-2 pt-4">
                                 <Label className="text-sm font-medium">Auto Layout</Label>
-                                <Select
-                                  value={selectedElementData.layoutMode || 'none'}
-                                  onValueChange={(value) => {
-                                    const newLayoutMode = value as 'none' | 'horizontal' | 'vertical';
-                                    const properties: Partial<WireframeElement> = { layoutMode: newLayoutMode };
-                                    if ((newLayoutMode === 'horizontal' || newLayoutMode === 'vertical') && (!selectedElementData.layoutMode || selectedElementData.layoutMode === 'none')) {
-                                      properties.padding = 16;
-                                    }
-                                    updateElementProperties(selectedElementData.id, properties);
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select layout mode" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">None</SelectItem>
-                                    <SelectItem value="horizontal">Horizontal</SelectItem>
-                                    <SelectItem value="vertical">Vertical</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <div className="flex items-center gap-2 mt-2">
+                                  {/* Toggle Auto Layout */}
+                                  <Button
+                                    size="sm"
+                                    variant={(selectedElementData.layoutMode && selectedElementData.layoutMode !== 'none') ? 'default' : 'outline'}
+                                    onClick={() => {
+                                      const isActive = !!(selectedElementData.layoutMode && selectedElementData.layoutMode !== 'none');
+                                      if (isActive) {
+                                        updateElementProperties(selectedElementData.id, { layoutMode: 'none' });
+                                      } else {
+                                        // Enable with default horizontal mode
+                                        updateElementProperties(selectedElementData.id, { layoutMode: 'horizontal' });
+                                      }
+                                    }}
+                                    title={selectedElementData.layoutMode && selectedElementData.layoutMode !== 'none' ? 'Desativar Auto Layout' : 'Ativar Auto Layout'}
+                                  >
+                                    <Layers className="w-4 h-4" />
+                                  </Button>
+
+                                  {/* Align Horizontal */}
+                                  <Button
+                                    size="sm"
+                                    variant={selectedElementData.layoutMode === 'horizontal' ? 'default' : 'outline'}
+                                    onClick={() => {
+                                      updateElementProperties(selectedElementData.id, { layoutMode: 'horizontal' });
+                                    }}
+                                    title="Alinhar Horizontalmente"
+                                  >
+                                    <div className="flex items-center gap-1"><ChevronLeft className="w-4 h-4" /><ChevronRight className="w-4 h-4" /></div>
+                                  </Button>
+
+                                  {/* Align Vertical */}
+                                  <Button
+                                    size="sm"
+                                    variant={selectedElementData.layoutMode === 'vertical' ? 'default' : 'outline'}
+                                    onClick={() => {
+                                      updateElementProperties(selectedElementData.id, { layoutMode: 'vertical' });
+                                    }}
+                                    title="Alinhar Verticalmente"
+                                  >
+                                    <div className="flex items-center gap-1"><ChevronUp className="w-4 h-4" /><ChevronDown className="w-4 h-4" /></div>
+                                  </Button>
+                                </div>
                               </div>
                               
                               {(selectedElementData.layoutMode === 'horizontal' || selectedElementData.layoutMode === 'vertical') && (
                                 <>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="frame-padding">Padding</Label>
-                                    <Input
-                                      id="frame-padding"
-                                      type="number"
-                                      value={selectedElementData.padding || 0}
-                                      onChange={(e) => updateElementProperty(selectedElementData.id, 'padding', parseInt(e.target.value, 10) || 0)}
-                                    />
-                                  </div>
+                                  <PaddingPicker
+                                    padding={selectedElementData.padding}
+                                    paddingTop={selectedElementData.paddingTop}
+                                    paddingRight={selectedElementData.paddingRight}
+                                    paddingBottom={selectedElementData.paddingBottom}
+                                    paddingLeft={selectedElementData.paddingLeft}
+                                    onChange={(changes) => {
+                                      updateElementProperties(selectedElementData.id, changes);
+                                    }}
+                                  />
                                   <div className="space-y-2">
                                     <Label htmlFor="frame-spacing">Spacing</Label>
                                     <Input
