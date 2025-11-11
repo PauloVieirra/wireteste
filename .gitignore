@@ -1,6 +1,5 @@
 # Dependências
 node_modules/
-src/components/icons/
 # Build
 dist/
 build/
