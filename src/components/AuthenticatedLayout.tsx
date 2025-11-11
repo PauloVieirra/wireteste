@@ -268,7 +268,13 @@ export function AuthenticatedLayout({ user, children, onLogout, hasUnsavedChange
 
       {/* Main Content */}
       <main className="flex-1 flex">
-        {children}
+        {React.Children.map(children, child => {
+          if (React.isValidElement(child)) {
+            // @ts-ignore
+            return React.cloneElement(child, { user });
+          }
+          return child;
+        })}
       </main>
 
       <ConnectionStatusIndicator hasUnsavedChanges={hasUnsavedChanges} onSyncLocalChanges={onSyncLocalChanges} />

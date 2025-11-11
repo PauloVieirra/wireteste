@@ -908,6 +908,7 @@ export default function App() {
                 project={selectedProject}
                 onUpdateProject={handleLocalProjectUpdate} // Usar a nova função de atualização local
                 onBack={goBack}
+                user={user}
               />
             )}
 

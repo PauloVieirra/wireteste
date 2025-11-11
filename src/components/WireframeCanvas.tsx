@@ -41,6 +41,8 @@ interface WireframeElement {
   fontFamily?: string;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
+  textBorderColor?: string;
+  textBorderWidth?: number;
   textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT';
 }
 
@@ -256,13 +258,15 @@ const CanvasElement = ({ element, isSelected, onSelect, onUpdate, zoom, project,
       break;
     case 'text':
       const fontSize = getFontSize(element, project.resolution);
-      const textProps = {
+      const textProps: any = {
         ...commonProps,
         text: element.text || 'Text',
         fontSize: fontSize,
         fontFamily: element.fontFamily || 'Inter',
         fontWeight: element.fontWeight || 'normal',
         fill: element.textColor || 'var(--foreground)',
+        stroke: element.textBorderColor,
+        strokeWidth: element.textBorderWidth,
         align: element.textAlign || 'left',
         verticalAlign: "top",
         padding: 5,
